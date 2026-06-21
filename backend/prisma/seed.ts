@@ -1,9 +1,10 @@
 import { PrismaClient } from '@prisma/client';
+import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Sembrando base de datos en Supabase...');
+  console.log('🌱 Sembrando base de datos en Supabase con contraseñas encriptadas...');
 
   // 1. Limpiar base de datos para pruebas limpias
   await prisma.planAlimenticio.deleteMany();
@@ -13,12 +14,16 @@ async function main() {
   await prisma.nutriologoProfile.deleteMany();
   await prisma.user.deleteMany();
 
+  // Encriptar contraseña para la siembra
+  const salt = await bcrypt.genSalt(10);
+  const passwordHash = await bcrypt.hash('password123', salt);
+
   // 2. Crear Nutriólogo
   const userNutri = await prisma.user.create({
     data: {
       id: 'mock-user-nutri-uuid',
       email: 'alejandro.silva@nutrition.com',
-      passwordHash: 'hashedpassword123',
+      passwordHash,
       role: 'ADMIN_NUTRIOLOGO',
     },
   });
@@ -39,7 +44,7 @@ async function main() {
     data: {
       id: 'mock-user-paciente-uuid',
       email: 'valeria.alarcon@gmail.com',
-      passwordHash: 'hashedpassword123',
+      passwordHash,
       role: 'USER_PACIENTE',
     },
   });

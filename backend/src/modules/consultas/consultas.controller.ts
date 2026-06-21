@@ -13,63 +13,50 @@ import { CreateConsultaDto } from './dto/create-consulta.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Role } from '@prisma/client';
-// Asumiendo la existencia de JwtAuthGuard y RolesGuard en el proyecto para autenticación y autorización
-// import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-// import { RolesGuard } from '../../common/guards/roles.guard';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
 
 @Controller('api/consultas')
-// @UseGuards(JwtAuthGuard, RolesGuard) // Descomentar al integrar la autenticación del backend
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class ConsultasController {
   constructor(private readonly consultasService: ConsultasService) {}
 
   /**
    * Registra una nueva consulta médica con métricas antropométricas.
-   * Restringido a usuarios con el rol ADMIN_NUTRIOLOGO.
-   *
-   * @param user El usuario autenticado (se extrae el ID de perfil de nutriólogo)
-   * @param createConsultaDto Datos de la consulta
+   * Restringido exclusivamente al nutriólogo administrador (ADMIN_NUTRIOLOGO).
    */
   @Post()
   @Roles(Role.ADMIN_NUTRIOLOGO)
   @HttpCode(HttpStatus.CREATED)
   async create(
-    @GetUser('nutriologoProfileId') nutriologoProfileId: string, // Extraído del JWT Payload
+    @GetUser('nutriologoProfileId') nutriologoProfileId: string,
     @Body() createConsultaDto: CreateConsultaDto
   ) {
-    // Si no se usa el Decorator en un mock rápido, pasamos un ID quemado para pruebas
-    const profileId = nutriologoProfileId || 'mock-nutriologo-uuid';
-    return this.consultasService.create(profileId, createConsultaDto);
+    return this.consultasService.create(nutriologoProfileId, createConsultaDto);
   }
 
   /**
    * Obtiene todo el historial de consultas de un paciente específico.
-   *
-   * @param user El usuario autenticado
-   * @param pacienteId ID del paciente
+   * Permitido para el ADMIN_NUTRIOLOGO (su doctor) o el USER_PACIENTE (el propio paciente).
    */
   @Get('paciente/:pacienteId')
-  @Roles(Role.ADMIN_NUTRIOLOGO)
+  @Roles(Role.ADMIN_NUTRIOLOGO, Role.USER_PACIENTE)
   async findAllForPaciente(
-    @GetUser('nutriologoProfileId') nutriologoProfileId: string,
+    @GetUser() user: any,
     @Param('pacienteId') pacienteId: string
   ) {
-    const profileId = nutriologoProfileId || 'mock-nutriologo-uuid';
-    return this.consultasService.findAllForPaciente(profileId, pacienteId);
+    return this.consultasService.findAllForPaciente(user, pacienteId);
   }
 
   /**
-   * Obtiene el detalle de una consulta clínica por su ID.
-   *
-   * @param user El usuario autenticado
-   * @param id ID de la consulta
+   * Obtiene el detalle de una consulta clínica específica.
    */
   @Get(':id')
-  @Roles(Role.ADMIN_NUTRIOLOGO)
+  @Roles(Role.ADMIN_NUTRIOLOGO, Role.USER_PACIENTE)
   async findOne(
-    @GetUser('nutriologoProfileId') nutriologoProfileId: string,
+    @GetUser() user: any,
     @Param('id') id: string
   ) {
-    const profileId = nutriologoProfileId || 'mock-nutriologo-uuid';
-    return this.consultasService.findOne(profileId, id);
+    return this.consultasService.findOne(user, id);
   }
 }

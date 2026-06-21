@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
 // Tipado para el progreso histórico
 interface HistorialMetrico {
@@ -34,15 +35,12 @@ interface PlanAlimenticio {
 }
 
 export default function PatientDashboard() {
-  const [paciente] = useState({
-    id: 'mock-paciente-uuid', // Coincide con el ID sembrado por seed.ts
-    nombre: 'Valeria Alarcón',
-    edad: 28,
-    estatura: 1.68,
-    genero: 'Femenino',
-    nutriologo: 'Dr. Alejandro Silva (Nutrición Clínica y Deportiva)',
-    proximaCita: '28 de Junio, 2026 - 17:00'
-  });
+  const router = useRouter();
+  
+  // Estados de sesión
+  const [userName, setUserName] = useState<string>('Paciente');
+  const [pacienteId, setPacienteId] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
 
   const [historial, setHistorial] = useState<HistorialMetrico[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -55,22 +53,43 @@ export default function PatientDashboard() {
   const [formGrasa, setFormGrasa] = useState<string>('21.6');
   const [formMusculo, setFormMusculo] = useState<string>('39.0');
   const [formPliegue, setFormPliegue] = useState<string>('12');
-  const [formNotas, setFormNotas] = useState<string>('Excelente adaptación al entrenamiento y recomposición.');
+  const [formNotas, setFormNotas] = useState<string>('Excelente recomposición muscular detectada.');
   const [submitting, setSubmitting] = useState<boolean>(false);
 
-  // Carga el historial desde el backend
-  const fetchHistorial = async () => {
+  // 1. Verificar autenticación al montar
+  useEffect(() => {
+    const savedToken = localStorage.getItem('token');
+    const savedRole = localStorage.getItem('role');
+    const savedProfileId = localStorage.getItem('profileId');
+    const savedName = localStorage.getItem('userName');
+
+    if (!savedToken || savedRole !== 'USER_PACIENTE' || !savedProfileId) {
+      // Redireccionar al login si no tiene sesión activa
+      router.push('/login');
+    } else {
+      setToken(savedToken);
+      setPacienteId(savedProfileId);
+      setUserName(savedName || 'Paciente');
+    }
+  }, [router]);
+
+  // 2. Cargar historial cuando el pacienteId esté disponible
+  const fetchHistorial = async (profileId: string, userToken: string) => {
     try {
       setLoading(true);
-      const response = await fetch(`http://localhost:3000/api/consultas/paciente/${paciente.id}`);
+      const response = await fetch(`http://localhost:3000/api/consultas/paciente/${profileId}`, {
+        headers: {
+          'Authorization': `Bearer ${userToken}`
+        }
+      });
+      
       if (!response.ok) {
-        throw new Error('No se pudo obtener el historial clínico.');
+        throw new Error('Error al consultar el historial clínico al servidor.');
       }
       const data = await response.json();
       
       // Mapear y ordenar los datos cronológicamente descendente
       const mappedData: HistorialMetrico[] = data.map((item: any, idx: number, arr: any[]) => {
-        // Calcular el cambio de peso comparando con el elemento siguiente en el array (el cual es más antiguo)
         let cambioPeso = undefined;
         if (idx < arr.length - 1) {
           cambioPeso = parseFloat((item.peso - arr[idx + 1].peso).toFixed(1));
@@ -97,28 +116,60 @@ export default function PatientDashboard() {
       setError(null);
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Error al conectar con el servidor backend.');
+      setError(err.message || 'Error al conectar con el servidor.');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchHistorial();
-  }, []);
+    if (pacienteId && token) {
+      fetchHistorial(pacienteId, token);
+    }
+  }, [pacienteId, token]);
 
-  // Registra una nueva consulta simulada (nutriólogo registrando al paciente)
+  const handleLogout = () => {
+    localStorage.clear();
+    router.push('/login');
+  };
+
+  // Registra una nueva consulta simulada
+  // NOTA: Como este endpoint requiere rol ADMIN_NUTRIOLOGO, el simulador se logueará
+  // temporalmente como el doctor para obtener su token y registrar la consulta, demostrando
+  // el flujo completo de autenticación y aislamiento del inquilino (Multi-tenant)
   const handleSubmitConsulta = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!pacienteId || !token) return;
+
     try {
       setSubmitting(true);
+
+      // A. Autenticarse temporalmente como el doctor sembrado en la base de datos
+      const authDoctorRes = await fetch('http://localhost:3000/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'alejandro.silva@nutrition.com',
+          password: 'password123'
+        })
+      });
+
+      if (!authDoctorRes.ok) {
+        throw new Error('No se pudo autenticar al doctor para realizar la simulación.');
+      }
+
+      const doctorData = await authDoctorRes.json();
+      const doctorToken = doctorData.accessToken;
+
+      // B. Enviar la consulta con el Token del doctor
       const response = await fetch('http://localhost:3000/api/consultas', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${doctorToken}`
         },
         body: JSON.stringify({
-          pacienteId: paciente.id,
+          pacienteId: pacienteId,
           peso: parseFloat(formPeso),
           porcentajeGrasa: parseFloat(formGrasa),
           porcentajeMusculo: parseFloat(formMusculo),
@@ -132,18 +183,19 @@ export default function PatientDashboard() {
         throw new Error(errData.message || 'Error al registrar la consulta.');
       }
 
-      await fetchHistorial(); // Refrescar historial
+      // C. Refrescar el historial clínico usando el token original del paciente
+      await fetchHistorial(pacienteId, token);
       setShowSimulateModal(false);
       
-      // Auto-incrementar el formulario para el siguiente intento
+      // Auto-actualizar los valores para la siguiente simulación
       setFormPeso((parseFloat(formPeso) - 0.4).toFixed(1));
       setFormGrasa((parseFloat(formGrasa) - 0.3).toFixed(1));
       setFormMusculo((parseFloat(formMusculo) + 0.2).toFixed(1));
       setFormPliegue((parseInt(formPliegue) - 1).toString());
       
-      alert('¡Consulta registrada con éxito en Supabase y analíticas calculadas!');
+      alert('¡Consulta registrada con éxito en Supabase actuando como el Nutriólogo (ADMIN_NUTRIOLOGO)!');
     } catch (err: any) {
-      alert(`Error al registrar consulta: ${err.message}`);
+      alert(`Error en simulación: ${err.message}`);
     } finally {
       setSubmitting(false);
     }
@@ -190,12 +242,15 @@ export default function PatientDashboard() {
     pdfUrl: '/files/plan-valeria-alarcon-recomp.pdf'
   };
 
-  // Cálculos rápidos de progreso dinámico
   const ultimaMetrica = historial[0] || { peso: 63.3, grasa: 22.9, musculo: 37.9, fecha: 'N/A' };
   const primeraMetrica = historial[historial.length - 1] || { peso: 65.3, grasa: 24.5, musculo: 37.0 };
   const pesoPerdidoTotal = (primeraMetrica.peso - ultimaMetrica.peso).toFixed(1);
   const grasaPerdidaTotal = (primeraMetrica.grasa - ultimaMetrica.grasa).toFixed(1);
   const musculoGanadoTotal = (ultimaMetrica.musculo - primeraMetrica.musculo).toFixed(1);
+
+  if (!pacienteId || !token) {
+    return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400">Verificando sesión...</div>;
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans antialiased selection:bg-teal-500 selection:text-white">
@@ -210,7 +265,7 @@ export default function PatientDashboard() {
         {/* Header Premium */}
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-8 border-b border-slate-800/80 mb-8">
           <div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <span className="px-2.5 py-1 text-xs font-semibold tracking-wider text-teal-400 bg-teal-400/10 rounded-full border border-teal-500/20 uppercase">
                 Paciente Premium
               </span>
@@ -222,94 +277,101 @@ export default function PatientDashboard() {
               </button>
             </div>
             <h1 className="text-3xl font-extrabold tracking-tight text-white mt-2">
-              Hola, {paciente.nombre} 👋
+              Hola, {userName} 👋
             </h1>
             <p className="text-slate-400 text-sm mt-1">
               Tu seguimiento de composición corporal y plan nutricional en tiempo real.
             </p>
           </div>
           
-          <div className="flex items-center gap-4 bg-slate-900/60 backdrop-blur-md border border-slate-800 p-4 rounded-2xl w-full md:w-auto shadow-lg shadow-slate-950/50">
-            <div className="p-2 bg-indigo-500/10 rounded-xl border border-indigo-500/20 text-indigo-400">
+          <div className="flex items-center gap-4 w-full md:w-auto">
+            <div className="flex items-center gap-4 bg-slate-900/60 backdrop-blur-md border border-slate-800 p-4 rounded-2xl shadow-lg shadow-slate-950/50 flex-1 md:flex-initial">
+              <div className="p-2 bg-indigo-500/10 rounded-xl border border-indigo-500/20 text-indigo-400">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Próxima Consulta</p>
+                <p className="text-sm font-medium text-white">{planActivo.fechaInicio}</p>
+              </div>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="p-4 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 rounded-2xl transition cursor-pointer active:scale-95 shadow-lg"
+              title="Cerrar Sesión"
+            >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
               </svg>
-            </div>
-            <div>
-              <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Próxima Consulta</p>
-              <p className="text-sm font-medium text-white">{paciente.proximaCita}</p>
-            </div>
+            </button>
           </div>
         </header>
 
-        {/* Resumen de Progreso Dinámico */}
+        {/* Carga del Historial */}
         {loading && historial.length === 0 ? (
-          <div className="text-center py-12 text-slate-400">Cargando métricas...</div>
+          <div className="text-center py-12 text-slate-400 animate-pulse">Cargando métricas clínicas...</div>
         ) : error ? (
           <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 p-4 rounded-xl mb-8">
-            <p className="font-bold text-sm">⚠️ Estado de conexión: Offline</p>
-            <p className="text-xs mt-1">
-              No logramos conectar con el servidor en `http://localhost:3000`. Asegúrate de que el backend de NestJS esté corriendo (`npm run start:dev` dentro de `backend/`). Se están mostrando datos offline provisionales.
-            </p>
+            <p className="font-bold text-sm">⚠️ Error al cargar información</p>
+            <p className="text-xs mt-1">{error}</p>
           </div>
         ) : null}
 
-        <section className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          {/* Card 1 - Peso */}
-          <div className="relative overflow-hidden bg-slate-900/40 backdrop-blur-md border border-slate-800/80 p-6 rounded-2xl transition hover:border-slate-700/80 shadow-md">
-            <p className="text-sm font-medium text-slate-400">Peso Corporal Actual</p>
-            <div className="flex items-baseline gap-2 mt-2">
-              <span className="text-4xl font-extrabold text-white">{ultimaMetrica.peso}</span>
-              <span className="text-lg font-semibold text-slate-400">kg</span>
-              <span className={`ml-auto flex items-center text-xs font-semibold px-2.5 py-0.5 rounded-full border ${
-                parseFloat(pesoPerdidoTotal) >= 0 
-                  ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' 
-                  : 'text-rose-400 bg-rose-500/10 border-rose-500/20'
-              }`}>
-                {parseFloat(pesoPerdidoTotal) >= 0 ? `↓ ${pesoPerdidoTotal} kg` : `↑ ${Math.abs(parseFloat(pesoPerdidoTotal))} kg`} total
-              </span>
+        {/* Resumen antropométrico */}
+        {!loading && (
+          <section className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div className="relative overflow-hidden bg-slate-900/40 backdrop-blur-md border border-slate-800/80 p-6 rounded-2xl transition hover:border-slate-700/80 shadow-md">
+              <p className="text-sm font-medium text-slate-400">Peso Corporal Actual</p>
+              <div className="flex items-baseline gap-2 mt-2">
+                <span className="text-4xl font-extrabold text-white">{ultimaMetrica.peso}</span>
+                <span className="text-lg font-semibold text-slate-400">kg</span>
+                <span className={`ml-auto flex items-center text-xs font-semibold px-2.5 py-0.5 rounded-full border ${
+                  parseFloat(pesoPerdidoTotal) >= 0 
+                    ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' 
+                    : 'text-rose-400 bg-rose-500/10 border-rose-500/20'
+                }`}>
+                  {parseFloat(pesoPerdidoTotal) >= 0 ? `↓ ${pesoPerdidoTotal} kg` : `↑ ${Math.abs(parseFloat(pesoPerdidoTotal))} kg`} total
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-2">Última actualización: {ultimaMetrica.fecha}</p>
             </div>
-            <p className="text-xs text-slate-500 mt-2">
-              Última actualización: {ultimaMetrica.fecha !== 'N/A' ? ultimaMetrica.fecha : 'Modo Offline'}
-            </p>
-          </div>
 
-          {/* Card 2 - Porcentaje Grasa */}
-          <div className="relative overflow-hidden bg-slate-900/40 backdrop-blur-md border border-slate-800/80 p-6 rounded-2xl transition hover:border-slate-700/80 shadow-md">
-            <p className="text-sm font-medium text-slate-400">Porcentaje de Grasa</p>
-            <div className="flex items-baseline gap-2 mt-2">
-              <span className="text-4xl font-extrabold text-white">{ultimaMetrica.grasa}%</span>
-              <span className={`ml-auto flex items-center text-xs font-semibold px-2.5 py-0.5 rounded-full border ${
-                parseFloat(grasaPerdidaTotal) >= 0 
-                  ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' 
-                  : 'text-rose-400 bg-rose-500/10 border-rose-500/20'
-              }`}>
-                {parseFloat(grasaPerdidaTotal) >= 0 ? `↓ ${grasaPerdidaTotal}%` : `↑ ${Math.abs(parseFloat(grasaPerdidaTotal))}%`} total
-              </span>
+            <div className="relative overflow-hidden bg-slate-900/40 backdrop-blur-md border border-slate-800/80 p-6 rounded-2xl transition hover:border-slate-700/80 shadow-md">
+              <p className="text-sm font-medium text-slate-400">Porcentaje de Grasa</p>
+              <div className="flex items-baseline gap-2 mt-2">
+                <span className="text-4xl font-extrabold text-white">{ultimaMetrica.grasa}%</span>
+                <span className={`ml-auto flex items-center text-xs font-semibold px-2.5 py-0.5 rounded-full border ${
+                  parseFloat(grasaPerdidaTotal) >= 0 
+                    ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' 
+                    : 'text-rose-400 bg-rose-500/10 border-rose-500/20'
+                }`}>
+                  {parseFloat(grasaPerdidaTotal) >= 0 ? `↓ ${grasaPerdidaTotal}%` : `↑ ${Math.abs(parseFloat(grasaPerdidaTotal))}%`} total
+                </span>
+              </div>
+              <div className="w-full bg-slate-800 rounded-full h-1.5 mt-3.5">
+                <div className="bg-indigo-500 h-1.5 rounded-full transition-all duration-500" style={{ width: `${ultimaMetrica.grasa}%` }} />
+              </div>
             </div>
-            <div className="w-full bg-slate-800 rounded-full h-1.5 mt-3.5">
-              <div className="bg-indigo-500 h-1.5 rounded-full transition-all duration-500" style={{ width: `${ultimaMetrica.grasa}%` }} />
-            </div>
-          </div>
 
-          {/* Card 3 - Porcentaje Músculo */}
-          <div className="relative overflow-hidden bg-slate-900/40 backdrop-blur-md border border-slate-800/80 p-6 rounded-2xl transition hover:border-slate-700/80 shadow-md">
-            <p className="text-sm font-medium text-slate-400">Masa Muscular Esquelética</p>
-            <div className="flex items-baseline gap-2 mt-2">
-              <span className="text-4xl font-extrabold text-white">{ultimaMetrica.musculo}%</span>
-              <span className={`ml-auto flex items-center text-xs font-semibold px-2.5 py-0.5 rounded-full border ${
-                parseFloat(musculoGanadoTotal) >= 0 
-                  ? 'text-teal-400 bg-teal-500/10 border-teal-500/20' 
-                  : 'text-rose-400 bg-rose-500/10 border-rose-500/20'
-              }`}>
-                {parseFloat(musculoGanadoTotal) >= 0 ? `↑ ${musculoGanadoTotal}%` : `↓ ${Math.abs(parseFloat(musculoGanadoTotal))}%`} total
-              </span>
+            <div className="relative overflow-hidden bg-slate-900/40 backdrop-blur-md border border-slate-800/80 p-6 rounded-2xl transition hover:border-slate-700/80 shadow-md">
+              <p className="text-sm font-medium text-slate-400">Masa Muscular Esquelética</p>
+              <div className="flex items-baseline gap-2 mt-2">
+                <span className="text-4xl font-extrabold text-white">{ultimaMetrica.musculo}%</span>
+                <span className={`ml-auto flex items-center text-xs font-semibold px-2.5 py-0.5 rounded-full border ${
+                  parseFloat(musculoGanadoTotal) >= 0 
+                    ? 'text-teal-400 bg-teal-500/10 border-teal-500/20' 
+                    : 'text-rose-400 bg-rose-500/10 border-rose-500/20'
+                }`}>
+                  {parseFloat(musculoGanadoTotal) >= 0 ? `↑ ${musculoGanadoTotal}%` : `↓ ${Math.abs(parseFloat(musculoGanadoTotal))}%`} total
+                </span>
+              </div>
+              <div className="w-full bg-slate-800 rounded-full h-1.5 mt-3.5">
+                <div className="bg-teal-400 h-1.5 rounded-full transition-all duration-500" style={{ width: `${ultimaMetrica.musculo}%` }} />
+              </div>
             </div>
-            <div className="w-full bg-slate-800 rounded-full h-1.5 mt-3.5">
-              <div className="bg-teal-400 h-1.5 rounded-full transition-all duration-500" style={{ width: `${ultimaMetrica.musculo}%` }} />
-            </div>
-          </div>
-        </section>
+          </section>
+        )}
 
         {/* Tabs de Selección */}
         <div className="flex border-b border-slate-800 mb-8 gap-4">
@@ -335,7 +397,7 @@ export default function PatientDashboard() {
           </button>
         </div>
 
-        {/* Tab content */}
+        {/* Contenido Dinámico */}
         {activeTab === 'comidas' ? (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2 space-y-6">
@@ -435,7 +497,7 @@ export default function PatientDashboard() {
                   <span className="text-xs text-slate-400 font-medium">Asesoría activa de plan alimenticio</span>
                 </div>
                 <button
-                  onClick={() => alert('Abriendo el chat interactivo para resolver dudas...')}
+                  onClick={() => alert('Abriendo chat con el especialista...')}
                   className="w-full mt-5 px-4 py-2.5 text-xs font-bold text-slate-200 bg-slate-800 hover:bg-slate-700/80 border border-slate-700 rounded-xl transition duration-300 tracking-wide"
                 >
                   💬 Enviar Mensaje
@@ -449,7 +511,7 @@ export default function PatientDashboard() {
             <div className="flex justify-between items-center mb-6">
               <div>
                 <h2 className="text-xl font-bold text-white">Historial de Mediciones (Live Supabase)</h2>
-                <p className="text-xs text-slate-400 mt-1">Evolución antropométrica registrada en consulta clínica.</p>
+                <p className="text-xs text-slate-400 mt-1">Evolución antropométrica registrada en consulta clínica por tu especialista.</p>
               </div>
             </div>
 
@@ -493,7 +555,7 @@ export default function PatientDashboard() {
                   {historial.length === 0 && !loading && (
                     <tr>
                       <td colSpan={7} className="text-center py-8 text-slate-500">
-                        No hay consultas registradas para este paciente. Presiona "Simular Consulta" para registrar una.
+                        No hay consultas registradas en tu historial. Presiona "Simular Consulta" arriba para crear una.
                       </td>
                     </tr>
                   )}
@@ -517,7 +579,7 @@ export default function PatientDashboard() {
             </button>
             <h3 className="text-lg font-bold text-white mb-2">⚡ Simular Registro de Consulta</h3>
             <p className="text-xs text-slate-400 mb-4">
-              Esta sección simula la interfaz del Nutriólogo. Al guardar, los datos se enviarán a NestJS, se almacenarán en Supabase y el Dashboard del Paciente recalculará su progreso.
+              Esta sección simula la interfaz del Nutriólogo. El frontend se logueará temporalmente como el doctor (`Dr. Alejandro Silva`) tras bambalinas para subir los datos de composición corporal con autorización a tu Supabase.
             </p>
 
             <form onSubmit={handleSubmitConsulta} className="space-y-4">

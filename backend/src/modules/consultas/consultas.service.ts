@@ -16,6 +16,10 @@ export class ConsultasService {
    * y calcula el progreso antropométrico comparativo con la última consulta registrada.
    */
   async create(nutriologoId: string, dto: CreateConsultaDto) {
+    if (!nutriologoId) {
+      throw new ForbiddenException('Se requiere una cuenta de nutriólogo válida para registrar consultas.');
+    }
+
     // 1. Validar que el paciente exista y pertenezca al nutriólogo autenticado
     const paciente = await this.prisma.pacienteProfile.findUnique({
       where: { id: dto.pacienteId },
@@ -88,21 +92,31 @@ export class ConsultasService {
   }
 
   /**
-   * Obtiene el historial clínico y antropométrico completo de un paciente específico.
+   * Obtiene el historial clínico y antropométrico de un paciente específico.
+   * Filtra por paciente (si el rol es paciente) o por nutriólogo (si el rol es doctor) para garantizar aislamiento.
    */
-  async findAllForPaciente(nutriologoId: string, pacienteId: string) {
-    // Validar pertenencia del paciente antes de entregar datos
-    const paciente = await this.prisma.pacienteProfile.findUnique({
-      where: { id: pacienteId },
-      select: { id: true, nutriologoId: true }
-    });
+  async findAllForPaciente(user: any, pacienteId: string) {
+    if (user.role === 'USER_PACIENTE') {
+      // Un paciente solo puede leer sus propias consultas
+      if (user.pacienteProfileId !== pacienteId) {
+        throw new ForbiddenException('No tienes permisos para visualizar los datos de otro paciente.');
+      }
+    } else if (user.role === 'ADMIN_NUTRIOLOGO') {
+      // Un nutriólogo solo puede leer consultas de pacientes asignados a él
+      const paciente = await this.prisma.pacienteProfile.findUnique({
+        where: { id: pacienteId },
+        select: { id: true, nutriologoId: true }
+      });
 
-    if (!paciente) {
-      throw new NotFoundException(`El paciente con ID ${pacienteId} no existe.`);
-    }
+      if (!paciente) {
+        throw new NotFoundException(`El paciente con ID ${pacienteId} no existe.`);
+      }
 
-    if (paciente.nutriologoId !== nutriologoId) {
-      throw new ForbiddenException('No tienes permisos para visualizar los datos de este paciente.');
+      if (paciente.nutriologoId !== user.nutriologoProfileId) {
+        throw new ForbiddenException('No tienes permisos para visualizar los datos de este paciente.');
+      }
+    } else {
+      throw new ForbiddenException('Rol de usuario no autorizado.');
     }
 
     return this.prisma.consultaMedica.findMany({
@@ -112,20 +126,32 @@ export class ConsultasService {
   }
 
   /**
-   * Obtiene los detalles de una consulta médica específica.
+   * Obtiene los detalles de una consulta médica específica, validando permisos.
    */
-  async findOne(nutriologoId: string, id: string) {
+  async findOne(user: any, id: string) {
     const consulta = await this.prisma.consultaMedica.findUnique({
       where: { id },
-      include: { paciente: { select: { nombre: true, nutriologoId: true } } }
+      include: { 
+        paciente: { select: { nombre: true, nutriologoId: true } } 
+      }
     });
 
     if (!consulta) {
       throw new NotFoundException(`La consulta con ID ${id} no existe.`);
     }
 
-    if (consulta.paciente.nutriologoId !== nutriologoId) {
-      throw new ForbiddenException('No tienes permisos para ver esta consulta.');
+    if (user.role === 'USER_PACIENTE') {
+      // Un paciente solo puede ver si la consulta le pertenece
+      if (consulta.pacienteId !== user.pacienteProfileId) {
+        throw new ForbiddenException('No tienes permisos para ver esta consulta.');
+      }
+    } else if (user.role === 'ADMIN_NUTRIOLOGO') {
+      // Un nutriólogo solo puede ver si la consulta es de uno de sus pacientes
+      if (consulta.paciente.nutriologoId !== user.nutriologoProfileId) {
+        throw new ForbiddenException('No tienes permisos para ver esta consulta.');
+      }
+    } else {
+      throw new ForbiddenException('Rol de usuario no autorizado.');
     }
 
     return consulta;
