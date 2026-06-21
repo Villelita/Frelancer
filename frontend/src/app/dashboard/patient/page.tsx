@@ -47,6 +47,10 @@ export default function PatientDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'comidas' | 'analisis'>('comidas');
 
+  // Estados de interactividad de gráficos SVG
+  const [hoveredWeightIdx, setHoveredWeightIdx] = useState<number | null>(null);
+  const [hoveredCompIdx, setHoveredCompIdx] = useState<number | null>(null);
+
   // Estado para el modal de simulación de consulta
   const [showSimulateModal, setShowSimulateModal] = useState<boolean>(false);
   const [formPeso, setFormPeso] = useState<string>('62.1');
@@ -56,7 +60,7 @@ export default function PatientDashboard() {
   const [formNotas, setFormNotas] = useState<string>('Excelente recomposición muscular detectada.');
   const [submitting, setSubmitting] = useState<boolean>(false);
 
-  // 1. Verificar autenticación al montar
+  // 1. Verificar autenticación al montar y estado de pago/reserva
   useEffect(() => {
     const savedToken = localStorage.getItem('token');
     const savedRole = localStorage.getItem('role');
@@ -64,14 +68,40 @@ export default function PatientDashboard() {
     const savedName = localStorage.getItem('userName');
 
     if (!savedToken || savedRole !== 'USER_PACIENTE' || !savedProfileId) {
-      // Redireccionar al login si no tiene sesión activa
       router.push('/login');
     } else {
       setToken(savedToken);
       setPacienteId(savedProfileId);
       setUserName(savedName || 'Paciente');
+      checkPaymentAndBooking(savedProfileId, savedToken);
     }
   }, [router]);
+
+  const checkPaymentAndBooking = async (profileId: string, userToken: string) => {
+    try {
+      const res = await fetch('http://localhost:3000/api/citas/status', {
+        headers: {
+          'Authorization': `Bearer ${userToken}`
+        }
+      });
+      if (res.ok) {
+        const status = await res.json();
+        if (!status.paid) {
+          router.push('/checkout');
+        } else if (!status.booked) {
+          router.push('/dashboard/patient/book');
+        } else {
+          // Si todo está pagado y agendado, procedemos a cargar historial
+          fetchHistorial(profileId, userToken);
+        }
+      } else {
+        fetchHistorial(profileId, userToken);
+      }
+    } catch (err) {
+      console.error('Error al verificar pago:', err);
+      fetchHistorial(profileId, userToken);
+    }
+  };
 
   // 2. Cargar historial cuando el pacienteId esté disponible
   const fetchHistorial = async (profileId: string, userToken: string) => {
@@ -240,6 +270,422 @@ export default function PatientDashboard() {
       }
     ],
     pdfUrl: '/files/plan-valeria-alarcon-recomp.pdf'
+  };
+
+  const renderWeightChart = () => {
+    const sortedData = [...historial].reverse();
+    if (sortedData.length === 0) {
+      return (
+        <div className="h-[200px] flex items-center justify-center text-slate-500 text-xs bg-slate-950/20 rounded-xl border border-slate-800/40">
+          Registra tu primera consulta para ver el gráfico de peso.
+        </div>
+      );
+    }
+
+    const width = 500;
+    const height = 200;
+    const paddingLeft = 40;
+    const paddingRight = 20;
+    const paddingTop = 20;
+    const paddingBottom = 30;
+
+    const chartWidth = width - paddingLeft - paddingRight;
+    const chartHeight = height - paddingTop - paddingBottom;
+
+    const weights = sortedData.map(d => d.peso);
+    let minVal = Math.min(...weights);
+    let maxVal = Math.max(...weights);
+    
+    if (minVal === maxVal) {
+      minVal -= 5;
+      maxVal += 5;
+    } else {
+      const margin = (maxVal - minVal) * 0.1;
+      minVal -= margin > 0.5 ? margin : 1;
+      maxVal += margin > 0.5 ? margin : 1;
+    }
+    const valRange = maxVal - minVal;
+
+    // Calcular puntos (x, y)
+    const points = sortedData.map((d, idx) => {
+      const x = paddingLeft + (sortedData.length > 1 ? (idx * chartWidth) / (sortedData.length - 1) : chartWidth / 2);
+      const y = height - paddingBottom - ((d.peso - minVal) * chartHeight) / valRange;
+      return { x, y, val: d.peso, date: d.fecha };
+    });
+
+    // Generar path para la línea
+    let linePath = '';
+    let areaPath = '';
+    if (points.length > 0) {
+      linePath = `M ${points[0].x} ${points[0].y}`;
+      for (let i = 1; i < points.length; i++) {
+        linePath += ` L ${points[i].x} ${points[i].y}`;
+      }
+      // Para el gradiente de área, cerramos el path en la base
+      areaPath = `${linePath} L ${points[points.length - 1].x} ${height - paddingBottom} L ${points[0].x} ${height - paddingBottom} Z`;
+    }
+
+    // Generar etiquetas Y (3 niveles)
+    const yLabels = [
+      maxVal,
+      minVal + valRange / 2,
+      minVal
+    ];
+
+    return (
+      <div className="relative w-full">
+        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto">
+          <defs>
+            <linearGradient id="weightGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#2dd4bf" stopOpacity="0.25" />
+              <stop offset="100%" stopColor="#2dd4bf" stopOpacity="0.00" />
+            </linearGradient>
+          </defs>
+
+          {/* Grid Lines Horizontales */}
+          {yLabels.map((val, idx) => {
+            const y = paddingTop + chartHeight - ((val - minVal) * chartHeight) / valRange;
+            return (
+              <g key={idx} className="opacity-40">
+                <line
+                  x1={paddingLeft}
+                  y1={y}
+                  x2={width - paddingRight}
+                  y2={y}
+                  stroke="#334155"
+                  strokeWidth="1"
+                  strokeDasharray="4 4"
+                />
+                <text
+                  x={paddingLeft - 8}
+                  y={y + 4}
+                  fill="#94a3b8"
+                  fontSize="10"
+                  textAnchor="end"
+                  className="font-semibold font-mono"
+                >
+                  {val.toFixed(1)}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* Gradiente de Área debajo de la línea */}
+          {areaPath && (
+            <path d={areaPath} fill="url(#weightGrad)" />
+          )}
+
+          {/* Línea del Gráfico */}
+          {linePath && (
+            <path
+              d={linePath}
+              fill="none"
+              stroke="#2dd4bf"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="drop-shadow-[0_2px_8px_rgba(45,212,191,0.3)]"
+            />
+          )}
+
+          {/* Puntos de Datos */}
+          {points.map((p, idx) => (
+            <g key={idx}>
+              {/* Círculo invisible de hover amplio */}
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r="14"
+                fill="transparent"
+                className="cursor-pointer"
+                onMouseEnter={() => setHoveredWeightIdx(idx)}
+                onMouseLeave={() => setHoveredWeightIdx(null)}
+              />
+              {/* Círculo visible */}
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r={hoveredWeightIdx === idx ? 6 : 4}
+                fill={hoveredWeightIdx === idx ? '#2dd4bf' : '#0f172a'}
+                stroke="#2dd4bf"
+                strokeWidth="2"
+                className="transition-all duration-150 pointer-events-none"
+              />
+              {/* Fecha en Eje X */}
+              {(idx === 0 || idx === points.length - 1 || (points.length > 2 && idx === Math.floor(points.length / 2))) && (
+                <text
+                  x={p.x}
+                  y={height - 8}
+                  fill="#64748b"
+                  fontSize="9"
+                  textAnchor="middle"
+                  className="font-medium pointer-events-none"
+                >
+                  {p.date.split(',')[0]}
+                </text>
+              )}
+            </g>
+          ))}
+
+          {/* Tooltip Dinámico */}
+          {hoveredWeightIdx !== null && points[hoveredWeightIdx] && (
+            <g className="pointer-events-none transition-all duration-200">
+              <line
+                x1={points[hoveredWeightIdx].x}
+                y1={paddingTop}
+                x2={points[hoveredWeightIdx].x}
+                y2={height - paddingBottom}
+                stroke="#2dd4bf"
+                strokeWidth="1.5"
+                strokeDasharray="2 2"
+                className="opacity-60"
+              />
+              <rect
+                x={Math.max(10, Math.min(width - 95, points[hoveredWeightIdx].x - 42))}
+                y={points[hoveredWeightIdx].y - 38}
+                width="84"
+                height="28"
+                rx="6"
+                fill="#0f172a"
+                stroke="#2dd4bf"
+                strokeWidth="1"
+                className="shadow-2xl"
+              />
+              <text
+                x={Math.max(10, Math.min(width - 95, points[hoveredWeightIdx].x - 42)) + 42}
+                y={points[hoveredWeightIdx].y - 20}
+                fill="#fff"
+                fontSize="10"
+                fontWeight="bold"
+                textAnchor="middle"
+                className="font-sans"
+              >
+                {points[hoveredWeightIdx].val.toFixed(1)} kg
+              </text>
+            </g>
+          )}
+        </svg>
+      </div>
+    );
+  };
+
+  const renderCompositionChart = () => {
+    const sortedData = [...historial].reverse();
+    if (sortedData.length === 0) {
+      return (
+        <div className="h-[200px] flex items-center justify-center text-slate-500 text-xs bg-slate-950/20 rounded-xl border border-slate-800/40">
+          Registra tu primera consulta para ver composición corporal.
+        </div>
+      );
+    }
+
+    const width = 500;
+    const height = 200;
+    const paddingLeft = 40;
+    const paddingRight = 20;
+    const paddingTop = 20;
+    const paddingBottom = 30;
+
+    const chartWidth = width - paddingLeft - paddingRight;
+    const chartHeight = height - paddingTop - paddingBottom;
+
+    const allVals = sortedData.flatMap(d => [d.grasa, d.musculo]);
+    let minVal = Math.min(...allVals);
+    let maxVal = Math.max(...allVals);
+
+    if (minVal === maxVal) {
+      minVal -= 5;
+      maxVal += 5;
+    } else {
+      const margin = (maxVal - minVal) * 0.15;
+      minVal -= margin > 0.5 ? margin : 1;
+      maxVal += margin > 0.5 ? margin : 1;
+    }
+    const valRange = maxVal - minVal;
+
+    const pointsGrasa = sortedData.map((d, idx) => {
+      const x = paddingLeft + (sortedData.length > 1 ? (idx * chartWidth) / (sortedData.length - 1) : chartWidth / 2);
+      const y = height - paddingBottom - ((d.grasa - minVal) * chartHeight) / valRange;
+      return { x, y, val: d.grasa, date: d.fecha };
+    });
+
+    const pointsMusculo = sortedData.map((d, idx) => {
+      const x = paddingLeft + (sortedData.length > 1 ? (idx * chartWidth) / (sortedData.length - 1) : chartWidth / 2);
+      const y = height - paddingBottom - ((d.musculo - minVal) * chartHeight) / valRange;
+      return { x, y, val: d.musculo, date: d.fecha };
+    });
+
+    let lineGrasa = '';
+    let lineMusculo = '';
+    if (sortedData.length > 0) {
+      lineGrasa = `M ${pointsGrasa[0].x} ${pointsGrasa[0].y}`;
+      lineMusculo = `M ${pointsMusculo[0].x} ${pointsMusculo[0].y}`;
+      for (let i = 1; i < sortedData.length; i++) {
+        lineGrasa += ` L ${pointsGrasa[i].x} ${pointsGrasa[i].y}`;
+        lineMusculo += ` L ${pointsMusculo[i].x} ${pointsMusculo[i].y}`;
+      }
+    }
+
+    const yLabels = [
+      maxVal,
+      minVal + valRange / 2,
+      minVal
+    ];
+
+    return (
+      <div className="relative w-full">
+        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto">
+          {/* Grid Lines Horizontales */}
+          {yLabels.map((val, idx) => {
+            const y = paddingTop + chartHeight - ((val - minVal) * chartHeight) / valRange;
+            return (
+              <g key={idx} className="opacity-40">
+                <line
+                  x1={paddingLeft}
+                  y1={y}
+                  x2={width - paddingRight}
+                  y2={y}
+                  stroke="#334155"
+                  strokeWidth="1"
+                  strokeDasharray="4 4"
+                />
+                <text
+                  x={paddingLeft - 8}
+                  y={y + 4}
+                  fill="#94a3b8"
+                  fontSize="10"
+                  textAnchor="end"
+                  className="font-semibold font-mono"
+                >
+                  {val.toFixed(1)}%
+                </text>
+              </g>
+            );
+          })}
+
+          {/* Línea Grasa (Rosa) */}
+          {lineGrasa && (
+            <path
+              d={lineGrasa}
+              fill="none"
+              stroke="#f43f5e"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="drop-shadow-[0_2px_6px_rgba(244,63,94,0.2)]"
+            />
+          )}
+
+          {/* Línea Músculo (Indigo) */}
+          {lineMusculo && (
+            <path
+              d={lineMusculo}
+              fill="none"
+              stroke="#6366f1"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="drop-shadow-[0_2px_6px_rgba(99,102,241,0.2)]"
+            />
+          )}
+
+          {/* Puntos y Eventos Grasa */}
+          {pointsGrasa.map((p, idx) => (
+            <g key={idx}>
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r="4"
+                fill={hoveredCompIdx === idx ? '#f43f5e' : '#0f172a'}
+                stroke="#f43f5e"
+                strokeWidth="1.5"
+                className="pointer-events-none"
+              />
+              <circle
+                cx={p.x}
+                cy={(p.y + pointsMusculo[idx].y) / 2}
+                r="14"
+                fill="transparent"
+                className="cursor-pointer"
+                onMouseEnter={() => setHoveredCompIdx(idx)}
+                onMouseLeave={() => setHoveredCompIdx(null)}
+              />
+              {(idx === 0 || idx === pointsGrasa.length - 1 || (pointsGrasa.length > 2 && idx === Math.floor(pointsGrasa.length / 2))) && (
+                <text
+                  x={p.x}
+                  y={height - 8}
+                  fill="#64748b"
+                  fontSize="9"
+                  textAnchor="middle"
+                  className="font-medium pointer-events-none"
+                >
+                  {p.date.split(',')[0]}
+                </text>
+              )}
+            </g>
+          ))}
+
+          {/* Puntos Músculo */}
+          {pointsMusculo.map((p, idx) => (
+            <circle
+              key={idx}
+              cx={p.x}
+              cy={p.y}
+              r="4"
+              fill={hoveredCompIdx === idx ? '#6366f1' : '#0f172a'}
+              stroke="#6366f1"
+              strokeWidth="1.5"
+              className="pointer-events-none"
+            />
+          ))}
+
+          {/* Tooltip Dinámico Dual */}
+          {hoveredCompIdx !== null && pointsGrasa[hoveredCompIdx] && pointsMusculo[hoveredCompIdx] && (
+            <g className="pointer-events-none">
+              <line
+                x1={pointsGrasa[hoveredCompIdx].x}
+                y1={paddingTop}
+                x2={pointsGrasa[hoveredCompIdx].x}
+                y2={height - paddingBottom}
+                stroke="#6366f1"
+                strokeWidth="1.5"
+                strokeDasharray="2 2"
+                className="opacity-40"
+              />
+              <rect
+                x={Math.max(10, Math.min(width - 125, pointsGrasa[hoveredCompIdx].x - 55))}
+                y={Math.min(pointsGrasa[hoveredCompIdx].y, pointsMusculo[hoveredCompIdx].y) - 48}
+                width="110"
+                height="38"
+                rx="6"
+                fill="#0f172a"
+                stroke="#6366f1"
+                strokeWidth="1"
+                className="shadow-2xl"
+              />
+              <text
+                x={Math.max(10, Math.min(width - 125, pointsGrasa[hoveredCompIdx].x - 55)) + 8}
+                y={Math.min(pointsGrasa[hoveredCompIdx].y, pointsMusculo[hoveredCompIdx].y) - 34}
+                fill="#f43f5e"
+                fontSize="9"
+                fontWeight="bold"
+              >
+                Grasa: {pointsGrasa[hoveredCompIdx].val.toFixed(1)}%
+              </text>
+              <text
+                x={Math.max(10, Math.min(width - 125, pointsGrasa[hoveredCompIdx].x - 55)) + 8}
+                y={Math.min(pointsGrasa[hoveredCompIdx].y, pointsMusculo[hoveredCompIdx].y) - 20}
+                fill="#6366f1"
+                fontSize="9"
+                fontWeight="bold"
+              >
+                Músculo: {pointsMusculo[hoveredCompIdx].val.toFixed(1)}%
+              </text>
+            </g>
+          )}
+        </svg>
+      </div>
+    );
   };
 
   const ultimaMetrica = historial[0] || { peso: 63.3, grasa: 22.9, musculo: 37.9, fecha: 'N/A' };
@@ -506,62 +952,96 @@ export default function PatientDashboard() {
             </div>
           </div>
         ) : (
-          /* Historial Antropométrico */
-          <div className="bg-slate-900/30 backdrop-blur-md border border-slate-800/80 rounded-2xl p-6 shadow-xl">
-            <div className="flex justify-between items-center mb-6">
-              <div>
-                <h2 className="text-xl font-bold text-white">Historial de Mediciones (Live Supabase)</h2>
-                <p className="text-xs text-slate-400 mt-1">Evolución antropométrica registrada en consulta clínica por tu especialista.</p>
+          <div className="space-y-8">
+            
+            {/* Gráficos de Evolución de Composición Corporal */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              
+              {/* Gráfico 1: Peso */}
+              <div className="bg-slate-900/30 backdrop-blur-md border border-slate-800/80 rounded-2xl p-6 shadow-xl">
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="text-base font-bold text-white">Evolución de Peso</h3>
+                  <span className="text-[10px] text-teal-400 bg-teal-400/10 px-2.5 py-0.5 rounded-full border border-teal-500/20 font-bold uppercase tracking-wider font-mono">
+                    kg
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mb-6">Visualización de tu cambio de peso corporal a lo largo de cada consulta registrada.</p>
+                {renderWeightChart()}
+              </div>
+
+              {/* Gráfico 2: Composición Corporal */}
+              <div className="bg-slate-900/30 backdrop-blur-md border border-slate-800/80 rounded-2xl p-6 shadow-xl">
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="text-base font-bold text-white">Composición Corporal</h3>
+                  <div className="flex gap-2 font-mono">
+                    <span className="text-[9px] text-rose-400 bg-rose-400/10 px-2 py-0.5 rounded border border-rose-500/20 font-bold">% GRASA</span>
+                    <span className="text-[9px] text-indigo-400 bg-indigo-400/10 px-2 py-0.5 rounded border border-indigo-500/20 font-bold">% MÚSCULO</span>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400 mb-6">Comparativa porcentual interactiva entre tu grasa corporal y tu masa muscular esquelética.</p>
+                {renderCompositionChart()}
+              </div>
+
+            </div>
+
+            {/* Historial Antropométrico */}
+            <div className="bg-slate-900/30 backdrop-blur-md border border-slate-800/80 rounded-2xl p-6 shadow-xl">
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h2 className="text-xl font-bold text-white">Historial de Mediciones (Live Supabase)</h2>
+                  <p className="text-xs text-slate-400 mt-1">Evolución antropométrica registrada en consulta clínica por tu especialista.</p>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                      <th className="py-4 px-4">Fecha</th>
+                      <th className="py-4 px-4 text-right">Peso (kg)</th>
+                      <th className="py-4 px-4 text-right">Dif. Peso</th>
+                      <th className="py-4 px-4 text-right">Grasa (%)</th>
+                      <th className="py-4 px-4 text-right">Músculo (%)</th>
+                      <th className="py-4 px-4 text-right">Pliegue Abd (mm)</th>
+                      <th className="py-4 px-4">Notas Clínicas</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/50 text-sm">
+                    {historial.map((reg) => (
+                      <tr key={reg.id} className="hover:bg-slate-800/20 transition-all duration-150">
+                        <td className="py-4 px-4 font-medium text-slate-200">{reg.fecha}</td>
+                        <td className="py-4 px-4 text-right font-semibold text-white">{reg.peso}</td>
+                        <td className="py-4 px-4 text-right">
+                          {reg.cambioPeso !== undefined ? (
+                            <span className={`inline-flex items-center text-xs font-bold px-2 py-0.5 rounded-full ${
+                              reg.cambioPeso < 0 
+                                ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20' 
+                                : 'text-rose-400 bg-rose-500/10 border border-rose-500/20'
+                            }`}>
+                              {reg.cambioPeso > 0 ? `+${reg.cambioPeso}` : reg.cambioPeso} kg
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-500">-</span>
+                          )}
+                        </td>
+                        <td className="py-4 px-4 text-right text-indigo-300 font-semibold">{reg.grasa}%</td>
+                        <td className="py-4 px-4 text-right text-teal-300 font-semibold">{reg.musculo}%</td>
+                        <td className="py-4 px-4 text-right text-slate-400">{reg.pliegueAbdominal || '-'}</td>
+                        <td className="py-4 px-4 text-slate-400 max-w-xs truncate" title={reg.notas}>{reg.notas || '-'}</td>
+                      </tr>
+                    ))}
+                    {historial.length === 0 && !loading && (
+                      <tr>
+                        <td colSpan={7} className="text-center py-8 text-slate-500">
+                          No hay consultas registradas en tu historial. Presiona "Simular Consulta" arriba para crear una.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-800 text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                    <th className="py-4 px-4">Fecha</th>
-                    <th className="py-4 px-4 text-right">Peso (kg)</th>
-                    <th className="py-4 px-4 text-right">Dif. Peso</th>
-                    <th className="py-4 px-4 text-right">Grasa (%)</th>
-                    <th className="py-4 px-4 text-right">Músculo (%)</th>
-                    <th className="py-4 px-4 text-right">Pliegue Abd (mm)</th>
-                    <th className="py-4 px-4">Notas Clínicas</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/50 text-sm">
-                  {historial.map((reg) => (
-                    <tr key={reg.id} className="hover:bg-slate-800/20 transition-all duration-150">
-                      <td className="py-4 px-4 font-medium text-slate-200">{reg.fecha}</td>
-                      <td className="py-4 px-4 text-right font-semibold text-white">{reg.peso}</td>
-                      <td className="py-4 px-4 text-right">
-                        {reg.cambioPeso !== undefined ? (
-                          <span className={`inline-flex items-center text-xs font-bold px-2 py-0.5 rounded-full ${
-                            reg.cambioPeso < 0 
-                              ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20' 
-                              : 'text-rose-400 bg-rose-500/10 border border-rose-500/20'
-                          }`}>
-                            {reg.cambioPeso > 0 ? `+${reg.cambioPeso}` : reg.cambioPeso} kg
-                          </span>
-                        ) : (
-                          <span className="text-xs text-slate-500">-</span>
-                        )}
-                      </td>
-                      <td className="py-4 px-4 text-right text-indigo-300 font-semibold">{reg.grasa}%</td>
-                      <td className="py-4 px-4 text-right text-teal-300 font-semibold">{reg.musculo}%</td>
-                      <td className="py-4 px-4 text-right text-slate-400">{reg.pliegueAbdominal || '-'}</td>
-                      <td className="py-4 px-4 text-slate-400 max-w-xs truncate" title={reg.notas}>{reg.notas || '-'}</td>
-                    </tr>
-                  ))}
-                  {historial.length === 0 && !loading && (
-                    <tr>
-                      <td colSpan={7} className="text-center py-8 text-slate-500">
-                        No hay consultas registradas en tu historial. Presiona "Simular Consulta" arriba para crear una.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
           </div>
         )}
 

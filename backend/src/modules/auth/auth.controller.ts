@@ -1,7 +1,20 @@
-import { Controller, Post, Body, Get, HttpCode, HttpStatus } from '@nestjs/common';
+import { 
+  Controller, 
+  Post, 
+  Body, 
+  Get, 
+  HttpCode, 
+  HttpStatus, 
+  UseGuards 
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { GetUser } from '../../common/decorators/get-user.decorator';
+import { Role } from '@prisma/client';
 
 @Controller('api/auth')
 export class AuthController {
@@ -32,5 +45,15 @@ export class AuthController {
   @Get('nutriologos')
   async getNutriologos() {
     return this.authService.getNutriologos();
+  }
+
+  /**
+   * Obtiene la lista de pacientes asociados al nutriólogo autenticado (Multi-tenant).
+   */
+  @Get('pacientes')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN_NUTRIOLOGO)
+  async getPacientes(@GetUser('nutriologoProfileId') nutriologoProfileId: string) {
+    return this.authService.getPacientesForNutri(nutriologoProfileId);
   }
 }

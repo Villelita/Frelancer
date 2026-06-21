@@ -17,8 +17,8 @@ export default function LoginPage() {
     if (token && role) {
       if (role === 'USER_PACIENTE') {
         router.push('/dashboard/patient');
-      } else {
-        alert('Nutriólogos ingresan al panel clínico.');
+      } else if (role === 'ADMIN_NUTRIOLOGO') {
+        router.push('/dashboard/nutri');
       }
     }
   }, [router]);
@@ -52,8 +52,10 @@ export default function LoginPage() {
 
       if (data.user.role === 'USER_PACIENTE') {
         router.push('/dashboard/patient');
+      } else if (data.user.role === 'ADMIN_NUTRIOLOGO') {
+        router.push('/dashboard/nutri');
       } else {
-        setError('Acceso restringido: El portal de administración de nutriólogos está en construcción. Ingresa con una cuenta de paciente para ver el dashboard.');
+        setError('Rol de usuario desconocido.');
         localStorage.clear();
       }
     } catch (err: any) {

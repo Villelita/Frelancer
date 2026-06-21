@@ -161,4 +161,26 @@ export class AuthService {
       }
     });
   }
+
+  /**
+   * Obtiene todos los pacientes asignados a un nutriólogo específico (aislamiento multi-tenant).
+   */
+  async getPacientesForNutri(nutriologoId: string) {
+    return this.prisma.pacienteProfile.findMany({
+      where: { nutriologoId },
+      select: {
+        id: true,
+        nombre: true,
+        fechaNacimiento: true,
+        telefono: true,
+        genero: true,
+        user: {
+          select: {
+            email: true
+          }
+        }
+      },
+      orderBy: { nombre: 'asc' }
+    });
+  }
 }
