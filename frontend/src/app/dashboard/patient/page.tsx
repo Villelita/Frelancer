@@ -491,7 +491,7 @@ export default function PatientDashboard() {
 
               <div className="bg-gradient-to-br from-indigo-950/20 via-slate-900/30 to-teal-950/20 backdrop-blur-md border border-slate-800/80 rounded-2xl p-6 shadow-xl">
                 <h3 className="text-base font-bold text-white mb-2">Tu Nutriólogo</h3>
-                <p className="text-sm text-slate-300 font-semibold">{paciente.nutriologo}</p>
+                <p className="text-sm text-slate-300 font-semibold">Dr. Alejandro Silva (Nutrición Deportiva)</p>
                 <div className="mt-4 pt-4 border-t border-slate-800/80 flex items-center gap-3">
                   <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse" />
                   <span className="text-xs text-slate-400 font-medium">Asesoría activa de plan alimenticio</span>

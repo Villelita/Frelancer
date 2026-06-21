@@ -4,7 +4,7 @@ import * as bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Sembrando base de datos en Supabase con contraseñas encriptadas...');
+  console.log('🌱 Sembrando base de datos en Supabase con UUIDs reales y válidos...');
 
   // 1. Limpiar base de datos para pruebas limpias
   await prisma.planAlimenticio.deleteMany();
@@ -18,10 +18,10 @@ async function main() {
   const salt = await bcrypt.genSalt(10);
   const passwordHash = await bcrypt.hash('password123', salt);
 
-  // 2. Crear Nutriólogo
+  // 2. Crear Nutriólogo con UUIDs reales
   const userNutri = await prisma.user.create({
     data: {
-      id: 'mock-user-nutri-uuid',
+      id: 'c4b09782-b118-4a92-b5e1-89d2cf8d0c91',
       email: 'alejandro.silva@nutrition.com',
       passwordHash,
       role: 'ADMIN_NUTRIOLOGO',
@@ -30,7 +30,7 @@ async function main() {
 
   const nutriProfile = await prisma.nutriologoProfile.create({
     data: {
-      id: 'mock-nutriologo-uuid',
+      id: 'd3b07384-d113-49cd-a5d6-89d02dcf8d80', // UUID v4 válido
       userId: userNutri.id,
       nombre: 'Dr. Alejandro Silva',
       cedulaProf: '12345678',
@@ -39,10 +39,10 @@ async function main() {
     },
   });
 
-  // 3. Crear Paciente
+  // 3. Crear Paciente con UUIDs reales
   const userPaciente = await prisma.user.create({
     data: {
-      id: 'mock-user-paciente-uuid',
+      id: '37a82b4a-112e-4f4e-a273-df27d2c3ef41',
       email: 'valeria.alarcon@gmail.com',
       passwordHash,
       role: 'USER_PACIENTE',
@@ -51,7 +51,7 @@ async function main() {
 
   const pacienteProfile = await prisma.pacienteProfile.create({
     data: {
-      id: 'mock-paciente-uuid',
+      id: '87a93b4a-a92e-4b4e-9273-df27d2c3df40', // UUID v4 válido
       userId: userPaciente.id,
       nombre: 'Valeria Alarcón',
       fechaNacimiento: new Date('1998-05-15'),
@@ -64,7 +64,7 @@ async function main() {
   // 4. Crear Consultas iniciales para tener historial
   const c1 = await prisma.consultaMedica.create({
     data: {
-      id: 'consulta-mock-1',
+      id: '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3d4b1a',
       pacienteId: pacienteProfile.id,
       nutriologoId: nutriProfile.id,
       fecha: new Date('2026-05-10T10:00:00Z'),
@@ -79,7 +79,7 @@ async function main() {
 
   const c2 = await prisma.consultaMedica.create({
     data: {
-      id: 'consulta-mock-2',
+      id: '0c2def5e-4c8e-5cbe-0cee-3c1e8c4e5c2b',
       pacienteId: pacienteProfile.id,
       nutriologoId: nutriProfile.id,
       fecha: new Date('2026-05-24T10:00:00Z'),
@@ -94,7 +94,7 @@ async function main() {
 
   const c3 = await prisma.consultaMedica.create({
     data: {
-      id: 'consulta-mock-3',
+      id: '1d3ef66f-5d9f-6dcf-1dff-4d2f9d5f6d3c',
       pacienteId: pacienteProfile.id,
       nutriologoId: nutriProfile.id,
       fecha: new Date('2026-06-07T10:00:00Z'),
@@ -110,7 +110,7 @@ async function main() {
   // 5. Crear Plan Alimenticio Activo
   await prisma.planAlimenticio.create({
     data: {
-      id: 'plan-mock-1',
+      id: '2e4f077a-6e0f-7edf-2eff-5e3f0e6f7d4d',
       pacienteId: pacienteProfile.id,
       nutriologoId: nutriProfile.id,
       consultaId: c3.id,
@@ -122,7 +122,7 @@ async function main() {
     },
   });
 
-  console.log('✅ Base de datos sembrada con éxito en Supabase.');
+  console.log('✅ Base de datos sembrada con éxito con UUIDs válidos.');
 }
 
 main()
