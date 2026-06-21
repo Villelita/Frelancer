@@ -1,0 +1,136 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  ADMIN_NUTRIOLOGO
+  USER_PACIENTE
+}
+
+enum CitaStatus {
+  PENDIENTE
+  CONFIRMADA
+  PAGADA
+  CANCELADA
+}
+
+model User {
+  id                String             @id @default(uuid())
+  email             String             @unique
+  passwordHash      String
+  role              Role               @default(USER_PACIENTE)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  
+  // Perfiles asociados según el rol
+  nutriologoProfile NutriologoProfile?
+  pacienteProfile   PacienteProfile?
+}
+
+model NutriologoProfile {
+  id              String            @id @default(uuid())
+  userId          String            @unique
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nombre          String
+  cedulaProf      String?
+  especialidades  String[]
+  stripeAccountId String?           // ID de cuenta conectada de Stripe (integración pasarela)
+  pixelMetaId     String?           // ID de Pixel de Meta para trackear conversiones
+  pixelGoogleId   String?           // ID de Google Analytics / AdWords
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  // Relaciones
+  pacientes       PacienteProfile[]
+  citas           Cita[]
+  consultas       ConsultaMedica[]
+  planes          PlanAlimenticio[]
+}
+
+model PacienteProfile {
+  id              String            @id @default(uuid())
+  userId          String            @unique
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nombre          String
+  fechaNacimiento DateTime
+  telefono        String?
+  genero          String?
+  nutriologoId    String
+  nutriologo      NutriologoProfile @relation(fields: [nutriologoId], references: [id])
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  // Relaciones
+  citas           Cita[]
+  consultas       ConsultaMedica[]
+  planes          PlanAlimenticio[]
+}
+
+model Cita {
+  id              String            @id @default(uuid())
+  pacienteId      String
+  paciente        PacienteProfile   @relation(fields: [pacienteId], references: [id])
+  nutriologoId    String
+  nutriologo      NutriologoProfile @relation(fields: [nutriologoId], references: [id])
+  fechaHora       DateTime
+  estado          CitaStatus        @default(PENDIENTE)
+  monto           Decimal           @db.Decimal(10, 2)
+  pagoId          String?           // Referencia del pago en Stripe / Mercado Pago
+  notas           String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+}
+
+model ConsultaMedica {
+  id                 String            @id @default(uuid())
+  pacienteId         String
+  paciente           PacienteProfile   @relation(fields: [pacienteId], references: [id])
+  nutriologoId       String
+  nutriologo         NutriologoProfile @relation(fields: [nutriologoId], references: [id])
+  fecha              DateTime          @default(now())
+  
+  // Antropometría y Composición Corporal
+  peso               Float             // Peso en kg
+  porcentajeGrasa    Float             // % de grasa corporal
+  porcentajeMusculo  Float             // % de masa muscular
+  porcentajeAgua     Float?            // % de agua corporal (opcional)
+  
+  // Pliegues cutáneos (mediciones opcionales en mm)
+  pliegueTricipital  Float?
+  pliegueSubescapular Float?
+  pliegueSuprailiaco Float?
+  pliegueAbdominal   Float?
+  
+  // Soporte para protocolos personalizados o mediciones adicionales
+  plieguesJson       Json?             // Permite almacenar pliegues y perímetros dinámicos
+  
+  notas              String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  // Relaciones
+  planesAlimenticios PlanAlimenticio[]
+}
+
+model PlanAlimenticio {
+  id              String            @id @default(uuid())
+  pacienteId      String
+  paciente        PacienteProfile   @relation(fields: [pacienteId], references: [id])
+  nutriologoId    String
+  nutriologo      NutriologoProfile @relation(fields: [nutriologoId], references: [id])
+  consultaId      String?           // Opcional si se crea como parte de una consulta
+  consulta        ConsultaMedica?   @relation(fields: [consultaId], references: [id])
+  nombre          String            // Ej. "Plan de Definición Hipo-calórico"
+  contenidoJson   Json              // Estructura de las comidas, macros, calorías por día
+  pdfUrl          String?           // Enlace de descarga (S3, Supabase Storage, etc.)
+  activo          Boolean           @default(true)
+  fechaInicio     DateTime
+  fechaFin        DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+}
