@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 // Tipado para el progreso histórico
 interface HistorialMetrico {
@@ -12,6 +12,7 @@ interface HistorialMetrico {
   agua?: number;
   pliegueAbdominal?: number;
   cambioPeso?: number; // Delta en comparación al anterior
+  notas?: string;
 }
 
 // Tipado para el plan alimenticio
@@ -33,8 +34,8 @@ interface PlanAlimenticio {
 }
 
 export default function PatientDashboard() {
-  // Datos simulados (mock) de alta fidelidad para representar el estado de la aplicación
   const [paciente] = useState({
+    id: 'mock-paciente-uuid', // Coincide con el ID sembrado por seed.ts
     nombre: 'Valeria Alarcón',
     edad: 28,
     estatura: 1.68,
@@ -43,14 +44,112 @@ export default function PatientDashboard() {
     proximaCita: '28 de Junio, 2026 - 17:00'
   });
 
-  const [historial] = useState<HistorialMetrico[]>([
-    { id: '1', fecha: '21 Jun 2026', peso: 62.5, grasa: 22.1, musculo: 38.4, agua: 53.2, pliegueAbdominal: 14, cambioPeso: -0.8 },
-    { id: '2', fecha: '07 Jun 2026', peso: 63.3, grasa: 22.9, musculo: 37.9, agua: 52.8, pliegueAbdominal: 15, cambioPeso: -1.1 },
-    { id: '3', fecha: '24 May 2026', peso: 64.4, grasa: 23.8, musculo: 37.5, agua: 52.1, pliegueAbdominal: 17, cambioPeso: -0.9 },
-    { id: '4', fecha: '10 May 2026', peso: 65.3, grasa: 24.5, musculo: 37.0, agua: 51.8, pliegueAbdominal: 18 }
-  ]);
+  const [historial, setHistorial] = useState<HistorialMetrico[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'comidas' | 'analisis'>('comidas');
 
-  const [planActivo] = useState<PlanAlimenticio>({
+  // Estado para el modal de simulación de consulta
+  const [showSimulateModal, setShowSimulateModal] = useState<boolean>(false);
+  const [formPeso, setFormPeso] = useState<string>('62.1');
+  const [formGrasa, setFormGrasa] = useState<string>('21.6');
+  const [formMusculo, setFormMusculo] = useState<string>('39.0');
+  const [formPliegue, setFormPliegue] = useState<string>('12');
+  const [formNotas, setFormNotas] = useState<string>('Excelente adaptación al entrenamiento y recomposición.');
+  const [submitting, setSubmitting] = useState<boolean>(false);
+
+  // Carga el historial desde el backend
+  const fetchHistorial = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`http://localhost:3000/api/consultas/paciente/${paciente.id}`);
+      if (!response.ok) {
+        throw new Error('No se pudo obtener el historial clínico.');
+      }
+      const data = await response.json();
+      
+      // Mapear y ordenar los datos cronológicamente descendente
+      const mappedData: HistorialMetrico[] = data.map((item: any, idx: number, arr: any[]) => {
+        // Calcular el cambio de peso comparando con el elemento siguiente en el array (el cual es más antiguo)
+        let cambioPeso = undefined;
+        if (idx < arr.length - 1) {
+          cambioPeso = parseFloat((item.peso - arr[idx + 1].peso).toFixed(1));
+        }
+        
+        return {
+          id: item.id,
+          fecha: new Date(item.fecha).toLocaleDateString('es-MX', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric'
+          }),
+          peso: item.peso,
+          grasa: item.porcentajeGrasa,
+          musculo: item.porcentajeMusculo,
+          agua: item.porcentajeAgua || undefined,
+          pliegueAbdominal: item.pliegueAbdominal || undefined,
+          cambioPeso,
+          notas: item.notas || undefined
+        };
+      });
+
+      setHistorial(mappedData);
+      setError(null);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Error al conectar con el servidor backend.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchHistorial();
+  }, []);
+
+  // Registra una nueva consulta simulada (nutriólogo registrando al paciente)
+  const handleSubmitConsulta = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setSubmitting(true);
+      const response = await fetch('http://localhost:3000/api/consultas', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          pacienteId: paciente.id,
+          peso: parseFloat(formPeso),
+          porcentajeGrasa: parseFloat(formGrasa),
+          porcentajeMusculo: parseFloat(formMusculo),
+          pliegueAbdominal: parseFloat(formPliegue),
+          notas: formNotas
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.message || 'Error al registrar la consulta.');
+      }
+
+      await fetchHistorial(); // Refrescar historial
+      setShowSimulateModal(false);
+      
+      // Auto-incrementar el formulario para el siguiente intento
+      setFormPeso((parseFloat(formPeso) - 0.4).toFixed(1));
+      setFormGrasa((parseFloat(formGrasa) - 0.3).toFixed(1));
+      setFormMusculo((parseFloat(formMusculo) + 0.2).toFixed(1));
+      setFormPliegue((parseInt(formPliegue) - 1).toString());
+      
+      alert('¡Consulta registrada con éxito en Supabase y analíticas calculadas!');
+    } catch (err: any) {
+      alert(`Error al registrar consulta: ${err.message}`);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const planActivo: PlanAlimenticio = {
     id: 'plan-premium-1',
     nombre: 'Plan de Recomposición Corporal - Fase Aumento Magro',
     fechaInicio: '10 de Mayo, 2026',
@@ -89,20 +188,18 @@ export default function PatientDashboard() {
       }
     ],
     pdfUrl: '/files/plan-valeria-alarcon-recomp.pdf'
-  });
+  };
 
-  const [activeTab, setActiveTab] = useState<'comidas' | 'analisis'>('comidas');
-
-  // Cálculo de metas rápidas
-  const ultimaMetrica = historial[0];
-  const primeraMetrica = historial[historial.length - 1];
+  // Cálculos rápidos de progreso dinámico
+  const ultimaMetrica = historial[0] || { peso: 63.3, grasa: 22.9, musculo: 37.9, fecha: 'N/A' };
+  const primeraMetrica = historial[historial.length - 1] || { peso: 65.3, grasa: 24.5, musculo: 37.0 };
   const pesoPerdidoTotal = (primeraMetrica.peso - ultimaMetrica.peso).toFixed(1);
   const grasaPerdidaTotal = (primeraMetrica.grasa - ultimaMetrica.grasa).toFixed(1);
   const musculoGanadoTotal = (ultimaMetrica.musculo - primeraMetrica.musculo).toFixed(1);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans antialiased selection:bg-teal-500 selection:text-white">
-      {/* Fondo decorativo con gradientes abstractos */}
+      {/* Fondo decorativo con gradientes */}
       <div className="absolute top-0 left-0 right-0 h-[500px] bg-gradient-to-b from-indigo-950/30 via-teal-950/10 to-transparent pointer-events-none -z-10" />
       <div className="absolute top-20 right-10 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none -z-10" />
       <div className="absolute top-80 left-10 w-80 h-80 bg-teal-600/10 rounded-full blur-3xl pointer-events-none -z-10" />
@@ -117,12 +214,18 @@ export default function PatientDashboard() {
               <span className="px-2.5 py-1 text-xs font-semibold tracking-wider text-teal-400 bg-teal-400/10 rounded-full border border-teal-500/20 uppercase">
                 Paciente Premium
               </span>
+              <button
+                onClick={() => setShowSimulateModal(true)}
+                className="px-3 py-1 text-xs font-bold text-slate-950 bg-teal-300 hover:bg-teal-200 rounded-full transition cursor-pointer active:scale-95 shadow-md shadow-teal-500/10"
+              >
+                ⚡ Simular Consulta (Nutriólogo)
+              </button>
             </div>
             <h1 className="text-3xl font-extrabold tracking-tight text-white mt-2">
               Hola, {paciente.nombre} 👋
             </h1>
             <p className="text-slate-400 text-sm mt-1">
-              Tu seguimiento de composición corporal y plan nutricional personalizado.
+              Tu seguimiento de composición corporal y plan nutricional en tiempo real.
             </p>
           </div>
           
@@ -139,38 +242,49 @@ export default function PatientDashboard() {
           </div>
         </header>
 
-        {/* Resumen de Progreso de Alto Impacto */}
+        {/* Resumen de Progreso Dinámico */}
+        {loading && historial.length === 0 ? (
+          <div className="text-center py-12 text-slate-400">Cargando métricas...</div>
+        ) : error ? (
+          <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 p-4 rounded-xl mb-8">
+            <p className="font-bold text-sm">⚠️ Estado de conexión: Offline</p>
+            <p className="text-xs mt-1">
+              No logramos conectar con el servidor en `http://localhost:3000`. Asegúrate de que el backend de NestJS esté corriendo (`npm run start:dev` dentro de `backend/`). Se están mostrando datos offline provisionales.
+            </p>
+          </div>
+        ) : null}
+
         <section className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           {/* Card 1 - Peso */}
           <div className="relative overflow-hidden bg-slate-900/40 backdrop-blur-md border border-slate-800/80 p-6 rounded-2xl transition hover:border-slate-700/80 shadow-md">
-            <div className="absolute top-0 right-0 p-3 opacity-10 text-teal-400">
-              <svg className="w-24 h-24" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H7c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.04-.42 1.99-1.07 2.75z"/>
-              </svg>
-            </div>
             <p className="text-sm font-medium text-slate-400">Peso Corporal Actual</p>
             <div className="flex items-baseline gap-2 mt-2">
               <span className="text-4xl font-extrabold text-white">{ultimaMetrica.peso}</span>
               <span className="text-lg font-semibold text-slate-400">kg</span>
-              <span className="ml-auto flex items-center text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
-                ↓ {pesoPerdidoTotal} kg total
+              <span className={`ml-auto flex items-center text-xs font-semibold px-2.5 py-0.5 rounded-full border ${
+                parseFloat(pesoPerdidoTotal) >= 0 
+                  ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' 
+                  : 'text-rose-400 bg-rose-500/10 border-rose-500/20'
+              }`}>
+                {parseFloat(pesoPerdidoTotal) >= 0 ? `↓ ${pesoPerdidoTotal} kg` : `↑ ${Math.abs(parseFloat(pesoPerdidoTotal))} kg`} total
               </span>
             </div>
-            <p className="text-xs text-slate-500 mt-2">Última actualización: {ultimaMetrica.fecha}</p>
+            <p className="text-xs text-slate-500 mt-2">
+              Última actualización: {ultimaMetrica.fecha !== 'N/A' ? ultimaMetrica.fecha : 'Modo Offline'}
+            </p>
           </div>
 
           {/* Card 2 - Porcentaje Grasa */}
           <div className="relative overflow-hidden bg-slate-900/40 backdrop-blur-md border border-slate-800/80 p-6 rounded-2xl transition hover:border-slate-700/80 shadow-md">
-            <div className="absolute top-0 right-0 p-3 opacity-10 text-indigo-400">
-              <svg className="w-24 h-24" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
-              </svg>
-            </div>
             <p className="text-sm font-medium text-slate-400">Porcentaje de Grasa</p>
             <div className="flex items-baseline gap-2 mt-2">
               <span className="text-4xl font-extrabold text-white">{ultimaMetrica.grasa}%</span>
-              <span className="ml-auto flex items-center text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
-                ↓ {grasaPerdidaTotal}% total
+              <span className={`ml-auto flex items-center text-xs font-semibold px-2.5 py-0.5 rounded-full border ${
+                parseFloat(grasaPerdidaTotal) >= 0 
+                  ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' 
+                  : 'text-rose-400 bg-rose-500/10 border-rose-500/20'
+              }`}>
+                {parseFloat(grasaPerdidaTotal) >= 0 ? `↓ ${grasaPerdidaTotal}%` : `↑ ${Math.abs(parseFloat(grasaPerdidaTotal))}%`} total
               </span>
             </div>
             <div className="w-full bg-slate-800 rounded-full h-1.5 mt-3.5">
@@ -180,16 +294,15 @@ export default function PatientDashboard() {
 
           {/* Card 3 - Porcentaje Músculo */}
           <div className="relative overflow-hidden bg-slate-900/40 backdrop-blur-md border border-slate-800/80 p-6 rounded-2xl transition hover:border-slate-700/80 shadow-md">
-            <div className="absolute top-0 right-0 p-3 opacity-10 text-rose-400">
-              <svg className="w-24 h-24" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
-              </svg>
-            </div>
             <p className="text-sm font-medium text-slate-400">Masa Muscular Esquelética</p>
             <div className="flex items-baseline gap-2 mt-2">
               <span className="text-4xl font-extrabold text-white">{ultimaMetrica.musculo}%</span>
-              <span className="ml-auto flex items-center text-xs font-semibold text-teal-400 bg-teal-500/10 px-2.5 py-0.5 rounded-full border border-teal-500/20">
-                ↑ {musculoGanadoTotal}% total
+              <span className={`ml-auto flex items-center text-xs font-semibold px-2.5 py-0.5 rounded-full border ${
+                parseFloat(musculoGanadoTotal) >= 0 
+                  ? 'text-teal-400 bg-teal-500/10 border-teal-500/20' 
+                  : 'text-rose-400 bg-rose-500/10 border-rose-500/20'
+              }`}>
+                {parseFloat(musculoGanadoTotal) >= 0 ? `↑ ${musculoGanadoTotal}%` : `↓ ${Math.abs(parseFloat(musculoGanadoTotal))}%`} total
               </span>
             </div>
             <div className="w-full bg-slate-800 rounded-full h-1.5 mt-3.5">
@@ -198,7 +311,7 @@ export default function PatientDashboard() {
           </div>
         </section>
 
-        {/* Sección de Selección de Módulo (Tabs) */}
+        {/* Tabs de Selección */}
         <div className="flex border-b border-slate-800 mb-8 gap-4">
           <button
             onClick={() => setActiveTab('comidas')}
@@ -222,11 +335,9 @@ export default function PatientDashboard() {
           </button>
         </div>
 
-        {/* Contenido Dinámico */}
+        {/* Tab content */}
         {activeTab === 'comidas' ? (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            
-            {/* Detalles del Plan (Columna Izquierda / 2 Tercios) */}
             <div className="lg:col-span-2 space-y-6">
               <div className="bg-slate-900/30 backdrop-blur-md border border-slate-800/80 rounded-2xl p-6 shadow-xl">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
@@ -234,8 +345,6 @@ export default function PatientDashboard() {
                     <h2 className="text-xl font-bold text-white">{planActivo.nombre}</h2>
                     <p className="text-xs text-slate-400 mt-1">Activo desde el {planActivo.fechaInicio}</p>
                   </div>
-                  
-                  {/* Botón de descarga de PDF */}
                   <a
                     href={planActivo.pdfUrl}
                     download
@@ -252,13 +361,10 @@ export default function PatientDashboard() {
                   </a>
                 </div>
 
-                {/* Comidas detalladas */}
                 <div className="space-y-6">
                   {planActivo.comidas.map((comida, idx) => (
                     <div key={idx} className="relative pl-6 border-l-2 border-indigo-500/30 hover:border-indigo-400 transition-all duration-300">
-                      {/* Indicador del punto temporal */}
                       <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-indigo-500 border border-slate-950 shadow" />
-                      
                       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                         <span className="text-xs font-semibold text-indigo-400 tracking-wide bg-indigo-500/10 px-2.5 py-0.5 rounded-full border border-indigo-500/20">
                           {comida.hora}
@@ -273,7 +379,6 @@ export default function PatientDashboard() {
                           <span>🍚 {comida.macros.carbohidratos}g Carbs</span>
                         </div>
                       </div>
-
                       <h3 className="text-base font-bold text-white mt-2">{comida.nombre}</h3>
                       <p className="text-sm text-slate-400 mt-1 leading-relaxed">{comida.descripcion}</p>
                     </div>
@@ -282,23 +387,16 @@ export default function PatientDashboard() {
               </div>
             </div>
 
-            {/* Sidebar de Resumen Nutricional (Columna Derecha / 1 Tercio) */}
             <div className="space-y-6">
-              {/* Card Macros */}
               <div className="bg-slate-900/30 backdrop-blur-md border border-slate-800/80 rounded-2xl p-6 shadow-xl">
                 <h3 className="text-base font-bold text-white mb-4">Metas Diarias de Energía</h3>
-                
-                {/* Calorías totales */}
                 <div className="text-center py-6 border-b border-slate-800">
                   <span className="text-5xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-teal-400 to-indigo-400">
                     {planActivo.caloriasTotales}
                   </span>
                   <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mt-1">Kilocalorías</p>
                 </div>
-
-                {/* Macronutrientes */}
                 <div className="mt-6 space-y-4">
-                  {/* Carbos */}
                   <div>
                     <div className="flex justify-between text-xs font-semibold mb-1.5">
                       <span className="text-indigo-400">🌾 Carbohidratos (45%)</span>
@@ -308,8 +406,6 @@ export default function PatientDashboard() {
                       <div className="bg-indigo-500 h-2 rounded-full" style={{ width: '45%' }} />
                     </div>
                   </div>
-
-                  {/* Proteína */}
                   <div>
                     <div className="flex justify-between text-xs font-semibold mb-1.5">
                       <span className="text-teal-400">🥩 Proteínas (30%)</span>
@@ -319,8 +415,6 @@ export default function PatientDashboard() {
                       <div className="bg-teal-400 h-2 rounded-full" style={{ width: '30%' }} />
                     </div>
                   </div>
-
-                  {/* Grasas */}
                   <div>
                     <div className="flex justify-between text-xs font-semibold mb-1.5">
                       <span className="text-rose-400">🥑 Grasas (25%)</span>
@@ -333,37 +427,32 @@ export default function PatientDashboard() {
                 </div>
               </div>
 
-              {/* Card Soporte / Nutriólogo */}
               <div className="bg-gradient-to-br from-indigo-950/20 via-slate-900/30 to-teal-950/20 backdrop-blur-md border border-slate-800/80 rounded-2xl p-6 shadow-xl">
                 <h3 className="text-base font-bold text-white mb-2">Tu Nutriólogo</h3>
                 <p className="text-sm text-slate-300 font-semibold">{paciente.nutriologo}</p>
-                
                 <div className="mt-4 pt-4 border-t border-slate-800/80 flex items-center gap-3">
                   <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse" />
                   <span className="text-xs text-slate-400 font-medium">Asesoría activa de plan alimenticio</span>
                 </div>
-                
                 <button
-                  onClick={() => alert('Abriendo el chat interactivo para resolver dudas del plan...')}
+                  onClick={() => alert('Abriendo el chat interactivo para resolver dudas...')}
                   className="w-full mt-5 px-4 py-2.5 text-xs font-bold text-slate-200 bg-slate-800 hover:bg-slate-700/80 border border-slate-700 rounded-xl transition duration-300 tracking-wide"
                 >
                   💬 Enviar Mensaje
                 </button>
               </div>
             </div>
-
           </div>
         ) : (
-          /* Historial Antropométrico (Composición Corporal) */
+          /* Historial Antropométrico */
           <div className="bg-slate-900/30 backdrop-blur-md border border-slate-800/80 rounded-2xl p-6 shadow-xl">
             <div className="flex justify-between items-center mb-6">
               <div>
-                <h2 className="text-xl font-bold text-white">Historial de Mediciones</h2>
+                <h2 className="text-xl font-bold text-white">Historial de Mediciones (Live Supabase)</h2>
                 <p className="text-xs text-slate-400 mt-1">Evolución antropométrica registrada en consulta clínica.</p>
               </div>
             </div>
 
-            {/* Tabla interactiva premium */}
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
@@ -373,8 +462,8 @@ export default function PatientDashboard() {
                     <th className="py-4 px-4 text-right">Dif. Peso</th>
                     <th className="py-4 px-4 text-right">Grasa (%)</th>
                     <th className="py-4 px-4 text-right">Músculo (%)</th>
-                    <th className="py-4 px-4 text-right">Agua (%)</th>
-                    <th className="py-4 px-4 text-right">Pliegue Abd. (mm)</th>
+                    <th className="py-4 px-4 text-right">Pliegue Abd (mm)</th>
+                    <th className="py-4 px-4">Notas Clínicas</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/50 text-sm">
@@ -397,47 +486,121 @@ export default function PatientDashboard() {
                       </td>
                       <td className="py-4 px-4 text-right text-indigo-300 font-semibold">{reg.grasa}%</td>
                       <td className="py-4 px-4 text-right text-teal-300 font-semibold">{reg.musculo}%</td>
-                      <td className="py-4 px-4 text-right text-slate-400">{reg.agua || '-'}%</td>
-                      <td className="py-4 px-4 text-right text-slate-400">{reg.pliegueAbdominal || '-'} mm</td>
+                      <td className="py-4 px-4 text-right text-slate-400">{reg.pliegueAbdominal || '-'}</td>
+                      <td className="py-4 px-4 text-slate-400 max-w-xs truncate" title={reg.notas}>{reg.notas || '-'}</td>
                     </tr>
                   ))}
+                  {historial.length === 0 && !loading && (
+                    <tr>
+                      <td colSpan={7} className="text-center py-8 text-slate-500">
+                        No hay consultas registradas para este paciente. Presiona "Simular Consulta" para registrar una.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
-            </div>
-
-            {/* Micro-insights clínicos del progreso */}
-            <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-xl bg-slate-950/50 border border-slate-800">
-              <div className="flex gap-3">
-                <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400 self-start">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                  </svg>
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold text-white">Excelente Recomposición</h4>
-                  <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">
-                    Estás perdiendo masa grasa de forma constante mientras mantienes e incrementas tu porcentaje de músculo. Esto indica un excelente nivel de adhesión al plan nutricional y al entrenamiento.
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-3">
-                <div className="p-2.5 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-indigo-400 self-start">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                  </svg>
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold text-white">Reducción de Pliegues</h4>
-                  <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">
-                    Tu pliegue abdominal ha disminuido {primeraMetrica.pliegueAbdominal && ultimaMetrica.pliegueAbdominal ? primeraMetrica.pliegueAbdominal - ultimaMetrica.pliegueAbdominal : 0} mm desde la primera consulta. Esto confirma una pérdida real de grasa subcutánea localizada.
-                  </p>
-                </div>
-              </div>
             </div>
           </div>
         )}
 
       </div>
+
+      {/* Modal interactivo de Simulación de Consulta */}
+      {showSimulateModal && (
+        <div className="fixed inset-0 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm z-50 p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
+            <button
+              onClick={() => setShowSimulateModal(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white text-lg font-bold"
+            >
+              ×
+            </button>
+            <h3 className="text-lg font-bold text-white mb-2">⚡ Simular Registro de Consulta</h3>
+            <p className="text-xs text-slate-400 mb-4">
+              Esta sección simula la interfaz del Nutriólogo. Al guardar, los datos se enviarán a NestJS, se almacenarán en Supabase y el Dashboard del Paciente recalculará su progreso.
+            </p>
+
+            <form onSubmit={handleSubmitConsulta} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">Peso (kg)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    required
+                    value={formPeso}
+                    onChange={(e) => setFormPeso(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-teal-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">Pliegue Abd. (mm)</label>
+                  <input
+                    type="number"
+                    required
+                    value={formPliegue}
+                    onChange={(e) => setFormPliegue(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-teal-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">Grasa (%)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    required
+                    value={formGrasa}
+                    onChange={(e) => setFormGrasa(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-teal-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">Músculo (%)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    required
+                    value={formMusculo}
+                    onChange={(e) => setFormMusculo(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-teal-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1">Notas Clínicas</label>
+                <textarea
+                  value={formNotas}
+                  onChange={(e) => setFormNotas(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white h-20 resize-none focus:outline-none focus:border-teal-500"
+                  placeholder="Observaciones de la consulta..."
+                />
+              </div>
+
+              <div className="pt-2 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowSimulateModal(false)}
+                  className="w-1/2 py-2.5 text-xs font-bold text-slate-400 bg-slate-800 hover:bg-slate-700/80 rounded-xl transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="w-1/2 py-2.5 text-xs font-bold text-slate-950 bg-gradient-to-r from-teal-400 to-emerald-400 hover:from-teal-300 hover:to-emerald-300 rounded-xl transition shadow-md shadow-teal-500/10 cursor-pointer disabled:opacity-50"
+                >
+                  {submitting ? 'Guardando...' : 'Registrar Consulta'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
