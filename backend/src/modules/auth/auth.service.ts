@@ -2,7 +2,8 @@ import {
   Injectable, 
   ConflictException, 
   UnauthorizedException, 
-  BadRequestException 
+  BadRequestException,
+  ForbiddenException 
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -24,6 +25,9 @@ export class AuthService {
    * Si es USER_PACIENTE, crea su perfil de paciente asociado a un nutriólogo.
    */
   async register(dto: RegisterDto) {
+    if (dto.role === Role.ADMIN_NUTRIOLOGO) {
+      throw new ForbiddenException('El registro público de nutriólogos está deshabilitado. Solicite credenciales al administrador.');
+    }
     // 1. Verificar si el correo ya está registrado
     const userExists = await this.prisma.user.findUnique({
       where: { email: dto.email }
@@ -182,5 +186,104 @@ export class AuthService {
       },
       orderBy: { nombre: 'asc' }
     });
+  }
+
+  /**
+   * Registra un nuevo nutriólogo en el sistema (Admin-only).
+   */
+  async registerNutriologoByAdmin(dto: RegisterDto) {
+    const userExists = await this.prisma.user.findUnique({
+      where: { email: dto.email }
+    });
+
+    if (userExists) {
+      throw new ConflictException('El correo electrónico ya está registrado.');
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(dto.password, salt);
+
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          email: dto.email,
+          passwordHash,
+          role: Role.ADMIN_NUTRIOLOGO
+        }
+      });
+
+      const nutriProfile = await tx.nutriologoProfile.create({
+        data: {
+          userId: user.id,
+          nombre: dto.nombre,
+          cedulaProf: dto.cedulaProf,
+          especialidades: dto.especialidades || []
+        }
+      });
+
+      return {
+        success: true,
+        message: 'Nutriólogo registrado con éxito por el administrador.',
+        userId: user.id,
+        profileId: nutriProfile.id
+      };
+    });
+  }
+
+  /**
+   * Obtiene todos los nutriólogos con su total de pacientes (para el panel admin).
+   */
+  async getAllNutriologosForAdmin() {
+    const list = await this.prisma.nutriologoProfile.findMany({
+      include: {
+        user: {
+          select: {
+            email: true,
+            createdAt: true
+          }
+        },
+        _count: {
+          select: {
+            pacientes: true
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+
+    return list.map(n => ({
+      id: n.id,
+      nombre: n.nombre,
+      email: n.user.email,
+      cedulaProf: n.cedulaProf,
+      especialidades: n.especialidades,
+      createdAt: n.user.createdAt,
+      pacientesCount: n._count.pacientes
+    }));
+  }
+
+  /**
+   * Elimina un nutriólogo por su profileId (y su usuario cascada).
+   */
+  async deleteNutriologoByAdmin(id: string) {
+    const profile = await this.prisma.nutriologoProfile.findUnique({
+      where: { id }
+    });
+
+    if (!profile) {
+      throw new BadRequestException('Nutriólogo no encontrado.');
+    }
+
+    // Al eliminar el usuario, la relación cascade en la DB borrará el perfil automáticamente.
+    await this.prisma.user.delete({
+      where: { id: profile.userId }
+    });
+
+    return {
+      success: true,
+      message: 'Nutriólogo eliminado con éxito.'
+    };
   }
 }

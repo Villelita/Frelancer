@@ -39,6 +39,26 @@ async function main() {
     },
   });
 
+  // 2.5 Crear Administrador del Sistema
+  const userAdmin = await prisma.user.create({
+    data: {
+      id: 'a1b2c3d4-e5f6-7a8b-9c0d-e1f2a3b4c5d6',
+      email: 'admin@nutrition.com',
+      passwordHash,
+      role: 'ADMIN_NUTRIOLOGO',
+    },
+  });
+
+  await prisma.nutriologoProfile.create({
+    data: {
+      id: 'e1f2a3b4-c5d6-7e8f-9a0b-1c2d3e4f5a6b',
+      userId: userAdmin.id,
+      nombre: 'Administrador del Sistema',
+      cedulaProf: '00000000',
+      especialidades: ['Administración de Plataforma'],
+    },
+  });
+
   // 3. Crear Paciente con UUIDs reales
   const userPaciente = await prisma.user.create({
     data: {

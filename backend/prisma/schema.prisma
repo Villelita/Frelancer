@@ -83,6 +83,7 @@ model Cita {
   monto           Decimal           @db.Decimal(10, 2)
   pagoId          String?           // Referencia del pago en Stripe / Mercado Pago
   notas           String?
+  modalidad       String            @default("VIRTUAL") // "VIRTUAL" o "PRESENCIAL"
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 }

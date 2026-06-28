@@ -17,3 +17,7 @@ out/
 .vscode/
 .idea/
 Thumbs.db
+.agents
+.claude
+
+#Pdf

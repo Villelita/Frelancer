@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, UseGuards, HttpCode, HttpStatus, Req, Headers, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Body, UseGuards, HttpCode, HttpStatus, Req, Headers, BadRequestException, Query } from '@nestjs/common';
 import { CitasService } from './citas.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -16,8 +16,11 @@ export class CitasController {
   @Get('status')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.USER_PACIENTE)
-  async getStatus(@GetUser('pacienteProfileId') pacienteProfileId: string) {
-    return this.citasService.getStatus(pacienteProfileId);
+  async getStatus(
+    @GetUser('pacienteProfileId') pacienteProfileId: string,
+    @Query('session_id') sessionId?: string,
+  ) {
+    return this.citasService.getStatus(pacienteProfileId, sessionId);
   }
 
   /**
@@ -27,8 +30,16 @@ export class CitasController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.USER_PACIENTE)
   @HttpCode(HttpStatus.OK)
-  async createStripeSession(@GetUser('pacienteProfileId') pacienteProfileId: string) {
-    return this.citasService.createStripeSession(pacienteProfileId);
+  async createStripeSession(
+    @GetUser('pacienteProfileId') pacienteProfileId: string,
+    @Body() body: { fechaHora: string; modalidad: string; notas?: string }
+  ) {
+    return this.citasService.createStripeSession(
+      pacienteProfileId,
+      body.fechaHora,
+      body.modalidad,
+      body.notas
+    );
   }
 
   /**
@@ -40,9 +51,20 @@ export class CitasController {
   @HttpCode(HttpStatus.OK)
   async book(
     @GetUser('pacienteProfileId') pacienteProfileId: string,
-    @Body() body: { fechaHora: string; notas?: string }
+    @Body() body: { fechaHora: string; modalidad?: string; notas?: string }
   ) {
-    return this.citasService.confirmBooking(pacienteProfileId, body.fechaHora, body.notas);
+    return this.citasService.confirmBooking(pacienteProfileId, body.fechaHora, body.modalidad, body.notas);
+  }
+
+  /**
+   * Cancela la cita de valoración activa del paciente.
+   */
+  @Post('cancel')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.USER_PACIENTE)
+  @HttpCode(HttpStatus.OK)
+  async cancel(@GetUser('pacienteProfileId') pacienteProfileId: string) {
+    return this.citasService.cancelBooking(pacienteProfileId);
   }
 
   /**

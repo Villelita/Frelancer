@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import NotificationModal from '../../../components/NotificationModal';
 
 // Tipado para el progreso histórico
 interface HistorialMetrico {
@@ -46,6 +47,13 @@ export default function PatientDashboard() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'comidas' | 'analisis'>('comidas');
+  const [appointmentDate, setAppointmentDate] = useState<string | null>(null);
+  const [citaId, setCitaId] = useState<string | null>(null);
+  const [canceling, setCanceling] = useState<boolean>(false);
+  const [showCancelModal, setShowCancelModal] = useState<boolean>(false);
+  const [modalidad, setModalidad] = useState<string | null>(null);
+  const [planActivo, setPlanActivo] = useState<any>(null);
+  const [loadingPlan, setLoadingPlan] = useState<boolean>(true);
 
   // Estados de interactividad de gráficos SVG
   const [hoveredWeightIdx, setHoveredWeightIdx] = useState<number | null>(null);
@@ -59,6 +67,19 @@ export default function PatientDashboard() {
   const [formPliegue, setFormPliegue] = useState<string>('12');
   const [formNotas, setFormNotas] = useState<string>('Excelente recomposición muscular detectada.');
   const [submitting, setSubmitting] = useState<boolean>(false);
+
+  // Estados para Modal de Notificaciones
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalTitle, setModalTitle] = useState('');
+  const [modalMessage, setModalMessage] = useState('');
+  const [modalType, setModalType] = useState<'success' | 'error' | 'info' | 'warning'>('success');
+
+  const showNotification = (title: string, message: string, type: 'success' | 'error' | 'info' | 'warning' = 'success') => {
+    setModalTitle(title);
+    setModalMessage(message);
+    setModalType(type);
+    setModalOpen(true);
+  };
 
   // 1. Verificar autenticación al montar y estado de pago/reserva
   useEffect(() => {
@@ -79,7 +100,15 @@ export default function PatientDashboard() {
 
   const checkPaymentAndBooking = async (profileId: string, userToken: string) => {
     try {
-      const res = await fetch('http://localhost:3000/api/citas/status', {
+      const params = new URLSearchParams(window.location.search);
+      const sessionId = params.get('session_id');
+      
+      let url = 'http://localhost:3000/api/citas/status';
+      if (sessionId) {
+        url += `?session_id=${encodeURIComponent(sessionId)}`;
+      }
+
+      const res = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${userToken}`
         }
@@ -92,7 +121,11 @@ export default function PatientDashboard() {
           router.push('/dashboard/patient/book');
         } else {
           // Si todo está pagado y agendado, procedemos a cargar historial
+          setAppointmentDate(status.fechaHora);
+          setCitaId(status.citaId);
+          setModalidad(status.modalidad);
           fetchHistorial(profileId, userToken);
+          fetchPlanActivo(profileId, userToken);
         }
       } else {
         fetchHistorial(profileId, userToken);
@@ -152,11 +185,88 @@ export default function PatientDashboard() {
     }
   };
 
+  const fetchPlanActivo = async (profileId: string, userToken: string) => {
+    try {
+      setLoadingPlan(true);
+      const response = await fetch(`http://localhost:3000/api/planes/paciente/${profileId}`, {
+        headers: {
+          'Authorization': `Bearer ${userToken}`
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data) {
+          // Calcular gramos de macros a partir de los porcentajes y calorías totales
+          const kcal = data.contenidoJson.caloriasTotales;
+          const dist = data.contenidoJson.distribucionMacros || { carbohidratos: 45, proteinas: 30, grasas: 25 };
+          const gCarbs = Math.round((kcal * (dist.carbohidratos / 100)) / 4);
+          const gProt = Math.round((kcal * (dist.proteinas / 100)) / 4);
+          const gGrasa = Math.round((kcal * (dist.grasas / 100)) / 9);
+
+          setPlanActivo({
+            id: data.id,
+            nombre: data.nombre,
+            fechaInicio: new Date(data.fechaInicio).toLocaleDateString('es-MX', {
+              day: 'numeric',
+              month: 'long',
+              year: 'numeric'
+            }),
+            caloriasTotales: kcal,
+            distribucionMacros: dist,
+            gramosMacros: { carbohidratos: gCarbs, proteinas: gProt, grasas: gGrasa },
+            comidas: data.contenidoJson.comidas,
+            pdfUrl: data.pdfUrl || ''
+          });
+        } else {
+          setPlanActivo(null);
+        }
+      } else {
+        setPlanActivo(null);
+      }
+    } catch (err) {
+      console.error('Error al cargar plan alimenticio:', err);
+      setPlanActivo(null);
+    } finally {
+      setLoadingPlan(false);
+    }
+  };
+
   useEffect(() => {
     if (pacienteId && token) {
       fetchHistorial(pacienteId, token);
+      fetchPlanActivo(pacienteId, token);
     }
   }, [pacienteId, token]);
+
+  const handleCancelReservation = async () => {
+    if (!token) return;
+    
+    try {
+      setCanceling(true);
+      const res = await fetch('http://localhost:3000/api/citas/cancel', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (res.ok) {
+        setAppointmentDate(null);
+        setCitaId(null);
+        setModalidad(null);
+        setShowCancelModal(false);
+        router.push('/checkout?canceled=true');
+      } else {
+        const errData = await res.json();
+        showNotification('Error al Cancelar', errData.message || 'Error al cancelar la cita.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showNotification('Error de Red', 'Error de red al intentar cancelar la cita.', 'error');
+    } finally {
+      setCanceling(false);
+    }
+  };
 
   const handleLogout = () => {
     localStorage.clear();
@@ -223,54 +333,15 @@ export default function PatientDashboard() {
       setFormMusculo((parseFloat(formMusculo) + 0.2).toFixed(1));
       setFormPliegue((parseInt(formPliegue) - 1).toString());
       
-      alert('¡Consulta registrada con éxito en Supabase actuando como el Nutriólogo (ADMIN_NUTRIOLOGO)!');
+      showNotification('Consulta Registrada', '¡Consulta registrada con éxito en Supabase actuando como el Nutriólogo!', 'success');
     } catch (err: any) {
-      alert(`Error en simulación: ${err.message}`);
+      showNotification('Error de Simulación', err.message || 'No se pudo realizar la simulación.', 'error');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const planActivo: PlanAlimenticio = {
-    id: 'plan-premium-1',
-    nombre: 'Plan de Recomposición Corporal - Fase Aumento Magro',
-    fechaInicio: '10 de Mayo, 2026',
-    caloriasTotales: 1850,
-    distribucionMacros: { carbohidratos: 45, proteinas: 30, grasas: 25 },
-    comidas: [
-      {
-        hora: '08:00 AM',
-        nombre: 'Desayuno: Bowl Proteico de Avena y Berries',
-        descripcion: '40g de avena integral cocida en agua, 1 scoop de proteína de suero aislada, 50g de arándanos frescos, 15g de almendras trituradas y canela al gusto.',
-        macros: { carbohidratos: 38, proteinas: 32, grasas: 8, kcal: 352 }
-      },
-      {
-        hora: '11:30 AM',
-        nombre: 'Snack 1: Manzana Verde con Mantequilla de Maní',
-        descripcion: '1 manzana verde mediana cortada en rodajas con 15g (1 cucharada) de mantequilla de maní 100% natural.',
-        macros: { carbohidratos: 22, proteinas: 4, grasas: 8, kcal: 176 }
-      },
-      {
-        hora: '02:30 PM',
-        nombre: 'Almuerzo: Pechuga a las Hierbas con Quinoa y Espárragos',
-        descripcion: '150g de pechuga de pollo a la plancha, 100g de quinoa cocida, 150g de espárragos salteados en 1 cucharadita de aceite de oliva extra virgen.',
-        macros: { carbohidratos: 35, proteinas: 38, grasas: 9, kcal: 373 }
-      },
-      {
-        hora: '06:00 PM',
-        nombre: 'Snack 2: Shake Post-Entrenamiento',
-        descripcion: '1 scoop de proteína WPI en agua, 1 plátano mediano, 5g de creatina monohidratada.',
-        macros: { carbohidratos: 27, proteinas: 26, grasas: 1, kcal: 221 }
-      },
-      {
-        hora: '09:00 PM',
-        nombre: 'Cena: Filete de Salmón con Puré de Camote y Ensalada Verde',
-        descripcion: '130g de salmón al horno, 80g de puré de camote (batata) sin lácteos y ensalada de hojas verdes (espinaca, rúcula) aderezada con limón.',
-        macros: { carbohidratos: 25, proteinas: 29, grasas: 14, kcal: 342 }
-      }
-    ],
-    pdfUrl: '/files/plan-valeria-alarcon-recomp.pdf'
-  };
+  // (El plan se carga dinámicamente desde el backend en el estado planActivo)
 
   const renderWeightChart = () => {
     const sortedData = [...historial].reverse();
@@ -731,20 +802,49 @@ export default function PatientDashboard() {
           </div>
           
           <div className="flex items-center gap-4 w-full md:w-auto">
-            <div className="flex items-center gap-4 bg-slate-900/60 backdrop-blur-md border border-slate-800 p-4 rounded-2xl shadow-lg shadow-slate-950/50 flex-1 md:flex-initial">
-              <div className="p-2 bg-indigo-500/10 rounded-xl border border-indigo-500/20 text-indigo-400">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
+            <div className="flex flex-col gap-3 bg-slate-900/60 backdrop-blur-md border border-slate-800 p-4 rounded-2xl shadow-lg shadow-slate-950/50 flex-1 md:flex-initial min-w-[280px]">
+              <div className="flex items-center gap-4">
+                <div className="p-2 bg-indigo-500/10 rounded-xl border border-indigo-500/20 text-indigo-400">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Próxima Consulta</p>
+                  <p className="text-sm font-bold text-white">
+                    {appointmentDate
+                      ? new Date(appointmentDate).toLocaleDateString('es-MX', {
+                          day: 'numeric',
+                          month: 'short',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        }) + ` (${modalidad === 'VIRTUAL' ? 'Online' : 'Presencial'})`
+                      : 'Cargando...'}
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Próxima Consulta</p>
-                <p className="text-sm font-medium text-white">{planActivo.fechaInicio}</p>
-              </div>
+
+              {appointmentDate && (
+                <div className="flex gap-2 pt-2 border-t border-slate-800/80">
+                  <button
+                    onClick={() => router.push('/dashboard/patient/book?reschedule=true')}
+                    className="flex-1 py-1.5 text-[10px] font-bold text-teal-400 bg-teal-400/5 hover:bg-teal-400/10 border border-teal-500/20 rounded-lg transition duration-200 cursor-pointer active:scale-95 text-center"
+                  >
+                    📅 Reagendar
+                  </button>
+                  <button
+                    onClick={() => setShowCancelModal(true)}
+                    disabled={canceling}
+                    className="flex-1 py-1.5 text-[10px] font-bold text-rose-400 bg-rose-500/5 hover:bg-rose-500/10 border border-rose-500/20 rounded-lg transition duration-200 cursor-pointer active:scale-95 text-center disabled:opacity-50"
+                  >
+                    ❌ Cancelar
+                  </button>
+                </div>
+              )}
             </div>
             <button
               onClick={handleLogout}
-              className="p-4 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 rounded-2xl transition cursor-pointer active:scale-95 shadow-lg"
+              className="p-4 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 rounded-2xl transition cursor-pointer active:scale-95 shadow-lg h-full flex items-center justify-center self-stretch"
               title="Cerrar Sesión"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -845,95 +945,106 @@ export default function PatientDashboard() {
 
         {/* Contenido Dinámico */}
         {activeTab === 'comidas' ? (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-2 space-y-6">
-              <div className="bg-slate-900/30 backdrop-blur-md border border-slate-800/80 rounded-2xl p-6 shadow-xl">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-                  <div>
-                    <h2 className="text-xl font-bold text-white">{planActivo.nombre}</h2>
-                    <p className="text-xs text-slate-400 mt-1">Activo desde el {planActivo.fechaInicio}</p>
-                  </div>
-                  <a
-                    href={planActivo.pdfUrl}
-                    download
-                    onClick={(e) => {
-                      e.preventDefault();
-                      alert('Simulación de descarga: Su plan alimenticio se guardará en formato PDF.');
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-slate-950 bg-gradient-to-r from-teal-400 to-emerald-400 rounded-xl hover:from-teal-300 hover:to-emerald-300 transition duration-300 shadow-md shadow-teal-500/20 active:scale-95"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                    Descargar PDF
-                  </a>
-                </div>
-
-                <div className="space-y-6">
-                  {planActivo.comidas.map((comida, idx) => (
-                    <div key={idx} className="relative pl-6 border-l-2 border-indigo-500/30 hover:border-indigo-400 transition-all duration-300">
-                      <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-indigo-500 border border-slate-950 shadow" />
-                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-                        <span className="text-xs font-semibold text-indigo-400 tracking-wide bg-indigo-500/10 px-2.5 py-0.5 rounded-full border border-indigo-500/20">
-                          {comida.hora}
-                        </span>
-                        <div className="flex gap-3 text-xs text-slate-400">
-                          <span>🔥 {comida.macros.kcal} kcal</span>
-                          <span>|</span>
-                          <span>🥩 {comida.macros.proteinas}g Prot</span>
-                          <span>|</span>
-                          <span>🥑 {comida.macros.grasas}g Grasa</span>
-                          <span>|</span>
-                          <span>🍚 {comida.macros.carbohidratos}g Carbs</span>
-                        </div>
-                      </div>
-                      <h3 className="text-base font-bold text-white mt-2">{comida.nombre}</h3>
-                      <p className="text-sm text-slate-400 mt-1 leading-relaxed">{comida.descripcion}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
+          loadingPlan ? (
+            <div className="text-center py-12 text-slate-500 animate-pulse">Cargando plan alimenticio...</div>
+          ) : !planActivo ? (
+            <div className="bg-slate-900/30 backdrop-blur-md border border-slate-800/80 rounded-3xl p-10 text-center space-y-4 shadow-xl w-full">
+              <span className="text-5xl block">🍳</span>
+              <h3 className="text-lg font-black text-white">Tu Plan Alimenticio está en Preparación</h3>
+              <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
+                Tu nutriólogo asignado aún no ha publicado tu menú semanal en el sistema. ¡Recibirás una notificación cuando tu plan esté listo!
+              </p>
             </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 w-full">
+              <div className="lg:col-span-2 space-y-6">
+                <div className="bg-slate-900/30 backdrop-blur-md border border-slate-800/80 rounded-2xl p-6 shadow-xl">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+                    <div>
+                      <h2 className="text-xl font-bold text-white">{planActivo.nombre}</h2>
+                      <p className="text-xs text-slate-400 mt-1">Activo desde el {planActivo.fechaInicio}</p>
+                    </div>
+                    <a
+                      href={planActivo.pdfUrl || '#'}
+                      download
+                      onClick={(e) => {
+                        e.preventDefault();
+                        showNotification('Simulación de Descarga', 'Tu plan alimenticio se guardará en formato PDF próximamente.', 'info');
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-slate-950 bg-gradient-to-r from-teal-400 to-emerald-400 rounded-xl hover:from-teal-300 hover:to-emerald-300 transition duration-300 shadow-md shadow-teal-500/20 active:scale-95"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                      Descargar PDF
+                    </a>
+                  </div>
 
-            <div className="space-y-6">
-              <div className="bg-slate-900/30 backdrop-blur-md border border-slate-800/80 rounded-2xl p-6 shadow-xl">
-                <h3 className="text-base font-bold text-white mb-4">Metas Diarias de Energía</h3>
-                <div className="text-center py-6 border-b border-slate-800">
-                  <span className="text-5xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-teal-400 to-indigo-400">
-                    {planActivo.caloriasTotales}
-                  </span>
-                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mt-1">Kilocalorías</p>
-                </div>
-                <div className="mt-6 space-y-4">
-                  <div>
-                    <div className="flex justify-between text-xs font-semibold mb-1.5">
-                      <span className="text-indigo-400">🌾 Carbohidratos (45%)</span>
-                      <span className="text-slate-200">208g / día</span>
-                    </div>
-                    <div className="w-full bg-slate-800/80 rounded-full h-2">
-                      <div className="bg-indigo-500 h-2 rounded-full" style={{ width: '45%' }} />
-                    </div>
-                  </div>
-                  <div>
-                    <div className="flex justify-between text-xs font-semibold mb-1.5">
-                      <span className="text-teal-400">🥩 Proteínas (30%)</span>
-                      <span className="text-slate-200">138g / día</span>
-                    </div>
-                    <div className="w-full bg-slate-800/80 rounded-full h-2">
-                      <div className="bg-teal-400 h-2 rounded-full" style={{ width: '30%' }} />
-                    </div>
-                  </div>
-                  <div>
-                    <div className="flex justify-between text-xs font-semibold mb-1.5">
-                      <span className="text-rose-400">🥑 Grasas (25%)</span>
-                      <span className="text-slate-200">51g / día</span>
-                    </div>
-                    <div className="w-full bg-slate-800/80 rounded-full h-2">
-                      <div className="bg-rose-500 h-2 rounded-full" style={{ width: '25%' }} />
-                    </div>
+                  <div className="space-y-6">
+                    {planActivo.comidas && planActivo.comidas.map((comida: any, idx: number) => (
+                      <div key={idx} className="relative pl-6 border-l-2 border-indigo-500/30 hover:border-indigo-400 transition-all duration-300">
+                        <div className="absolute -left-[7px] top-1.5 w-3 h-3 rounded-full bg-indigo-500 border border-slate-950 shadow" />
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                          <span className="text-xs font-semibold text-indigo-400 tracking-wide bg-indigo-500/10 px-2.5 py-0.5 rounded-full border border-indigo-500/20">
+                            {comida.hora}
+                          </span>
+                          <div className="flex gap-3 text-xs text-slate-400">
+                            <span>🔥 {comida.macros?.kcal || 0} kcal</span>
+                            <span>|</span>
+                            <span>🥩 {comida.macros?.proteinas || 0}g Prot</span>
+                            <span>|</span>
+                            <span>🥑 {comida.macros?.grasas || 0}g Grasa</span>
+                            <span>|</span>
+                            <span>🍚 {comida.macros?.carbohidratos || 0}g Carbs</span>
+                          </div>
+                        </div>
+                        <h3 className="text-base font-bold text-white mt-2">{comida.nombre}</h3>
+                        <p className="text-sm text-slate-400 mt-1 leading-relaxed">{comida.descripcion}</p>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
+
+              <div className="space-y-6">
+                <div className="bg-slate-900/30 backdrop-blur-md border border-slate-800/80 rounded-2xl p-6 shadow-xl">
+                  <h3 className="text-base font-bold text-white mb-4">Metas Diarias de Energía</h3>
+                  <div className="text-center py-6 border-b border-slate-800">
+                    <span className="text-5xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-teal-400 to-indigo-400 font-mono animate-pulse">
+                      {planActivo.caloriasTotales}
+                    </span>
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mt-1">Kilocalorías</p>
+                  </div>
+                  <div className="mt-6 space-y-4">
+                    <div>
+                      <div className="flex justify-between text-xs font-semibold mb-1.5">
+                        <span className="text-indigo-400">🌾 Carbohidratos ({planActivo.distribucionMacros?.carbohidratos || 45}%)</span>
+                        <span className="text-slate-200">{planActivo.gramosMacros?.carbohidratos || 0}g / día</span>
+                      </div>
+                      <div className="w-full bg-slate-800/80 rounded-full h-2">
+                        <div className="bg-indigo-500 h-2 rounded-full" style={{ width: `${planActivo.distribucionMacros?.carbohidratos || 45}%` }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-xs font-semibold mb-1.5">
+                        <span className="text-teal-400">🥩 Proteínas ({planActivo.distribucionMacros?.proteinas || 30}%)</span>
+                        <span className="text-slate-200">{planActivo.gramosMacros?.proteinas || 0}g / día</span>
+                      </div>
+                      <div className="w-full bg-slate-800/80 rounded-full h-2">
+                        <div className="bg-teal-400 h-2 rounded-full" style={{ width: `${planActivo.distribucionMacros?.proteinas || 30}%` }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-xs font-semibold mb-1.5">
+                        <span className="text-rose-400">🥑 Grasas ({planActivo.distribucionMacros?.grasas || 25}%)</span>
+                        <span className="text-slate-200">{planActivo.gramosMacros?.grasas || 0}g / día</span>
+                      </div>
+                      <div className="w-full bg-slate-800/80 rounded-full h-2">
+                        <div className="bg-rose-500 h-2 rounded-full" style={{ width: `${planActivo.distribucionMacros?.grasas || 25}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
               <div className="bg-gradient-to-br from-indigo-950/20 via-slate-900/30 to-teal-950/20 backdrop-blur-md border border-slate-800/80 rounded-2xl p-6 shadow-xl">
                 <h3 className="text-base font-bold text-white mb-2">Tu Nutriólogo</h3>
@@ -943,7 +1054,7 @@ export default function PatientDashboard() {
                   <span className="text-xs text-slate-400 font-medium">Asesoría activa de plan alimenticio</span>
                 </div>
                 <button
-                  onClick={() => alert('Abriendo chat con el especialista...')}
+                  onClick={() => showNotification('Chat de Consulta', 'Abriendo chat seguro con tu nutriólogo de cabecera...', 'info')}
                   className="w-full mt-5 px-4 py-2.5 text-xs font-bold text-slate-200 bg-slate-800 hover:bg-slate-700/80 border border-slate-700 rounded-xl transition duration-300 tracking-wide"
                 >
                   💬 Enviar Mensaje
@@ -951,7 +1062,7 @@ export default function PatientDashboard() {
               </div>
             </div>
           </div>
-        ) : (
+        )) : (
           <div className="space-y-8">
             
             {/* Gráficos de Evolución de Composición Corporal */}
@@ -1143,6 +1254,59 @@ export default function PatientDashboard() {
         </div>
       )}
 
+      {/* Custom Cancellation Confirmation Modal */}
+      {showCancelModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md" />
+          
+          {/* Modal Container */}
+          <div className="relative bg-slate-900/90 border border-slate-800 rounded-3xl p-8 max-w-md w-full text-center shadow-2xl transform scale-100 transition-all duration-300 animate-in fade-in zoom-in-95 space-y-6">
+            
+            {/* Warning Icon with Glow */}
+            <div className="relative flex items-center justify-center w-20 h-20 mx-auto rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-400">
+              <span className="text-4xl animate-bounce">⚠️</span>
+              <div className="absolute inset-0 rounded-full bg-rose-500/5 blur-md" />
+            </div>
+
+            {/* Header */}
+            <div className="space-y-2">
+              <h2 className="text-2xl font-black text-white tracking-tight">¿Cancelar Cita de Valoración?</h2>
+              <p className="text-slate-400 text-xs leading-relaxed">
+                Esta acción no se puede deshacer. Tu cita actual será cancelada y liberada del calendario. Para agendar una nueva cita en el futuro, tendrás que realizar el pago correspondiente.
+              </p>
+            </div>
+
+            {/* Actions */}
+            <div className="pt-4 flex flex-col sm:flex-row gap-3">
+              <button
+                type="button"
+                onClick={() => setShowCancelModal(false)}
+                className="w-full sm:w-1/2 py-3 text-xs font-bold text-slate-400 bg-slate-800 hover:bg-slate-700/80 rounded-xl transition cursor-pointer border border-slate-700/60 active:scale-95"
+              >
+                Mantener Cita
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelReservation}
+                disabled={canceling}
+                className="w-full sm:w-1/2 py-3 text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 rounded-xl transition shadow-md shadow-rose-500/10 cursor-pointer active:scale-95 disabled:opacity-50"
+              >
+                {canceling ? 'Cancelando...' : 'Cancelar Cita'}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      <NotificationModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={modalTitle}
+        message={modalMessage}
+        type={modalType}
+      />
     </div>
   );
 }

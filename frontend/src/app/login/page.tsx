@@ -10,12 +10,14 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Redireccionar si ya tiene una sesión iniciada
   useEffect(() => {
     const token = localStorage.getItem('token');
     const role = localStorage.getItem('role');
+    const email = localStorage.getItem('userEmail');
     if (token && role) {
-      if (role === 'USER_PACIENTE') {
+      if (email === 'admin@nutrition.com') {
+        router.push('/dashboard/admin');
+      } else if (role === 'USER_PACIENTE') {
         router.push('/dashboard/patient');
       } else if (role === 'ADMIN_NUTRIOLOGO') {
         router.push('/dashboard/nutri');
@@ -49,8 +51,11 @@ export default function LoginPage() {
       localStorage.setItem('role', data.user.role);
       localStorage.setItem('profileId', data.user.profileId);
       localStorage.setItem('userName', data.user.nombre);
+      localStorage.setItem('userEmail', data.user.email);
 
-      if (data.user.role === 'USER_PACIENTE') {
+      if (data.user.email === 'admin@nutrition.com') {
+        router.push('/dashboard/admin');
+      } else if (data.user.role === 'USER_PACIENTE') {
         router.push('/dashboard/patient');
       } else if (data.user.role === 'ADMIN_NUTRIOLOGO') {
         router.push('/dashboard/nutri');

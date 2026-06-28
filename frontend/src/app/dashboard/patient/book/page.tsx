@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import NotificationModal from '../../../../components/NotificationModal';
 
 export default function BookAppointmentPage() {
   const router = useRouter();
@@ -18,8 +19,23 @@ export default function BookAppointmentPage() {
   const [notas, setNotas] = useState('');
   
   const [loading, setLoading] = useState(true);
+
+  // Estados para Modal de Notificaciones
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalTitle, setModalTitle] = useState('');
+  const [modalMessage, setModalMessage] = useState('');
+  const [modalType, setModalType] = useState<'success' | 'error' | 'info' | 'warning'>('success');
+
+  const showNotification = (title: string, message: string, type: 'success' | 'error' | 'info' | 'warning' = 'success') => {
+    setModalTitle(title);
+    setModalMessage(message);
+    setModalType(type);
+    setModalOpen(true);
+  };
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [modalidad, setModalidad] = useState<'VIRTUAL' | 'PRESENCIAL'>('VIRTUAL');
 
   // Slots de horas disponibles (Lunes a Viernes)
   const timeSlots = [
@@ -46,15 +62,26 @@ export default function BookAppointmentPage() {
       setToken(savedToken);
       setPacienteId(savedProfileId);
       setUserName(savedName || 'Paciente');
-      verifyPaymentStatus(savedToken);
+      
+      // Obtener el query param 'session_id' de forma segura en el cliente
+      const params = new URLSearchParams(window.location.search);
+      const sessionId = params.get('session_id');
+
+      verifyPaymentStatus(savedToken, sessionId);
       generateNextBusinessDays();
     }
   }, [router]);
 
-  const verifyPaymentStatus = async (userToken: string) => {
+  const verifyPaymentStatus = async (userToken: string, sessionId?: string | null) => {
     try {
       setLoading(true);
-      const res = await fetch('http://localhost:3000/api/citas/status', {
+      
+      let url = 'http://localhost:3000/api/citas/status';
+      if (sessionId) {
+        url += `?session_id=${encodeURIComponent(sessionId)}`;
+      }
+
+      const res = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${userToken}`
         }
@@ -62,11 +89,16 @@ export default function BookAppointmentPage() {
 
       if (res.ok) {
         const status = await res.json();
+        
+        // Comprobar si viene el query param 'reschedule' para omitir la redirección automática
+        const params = new URLSearchParams(window.location.search);
+        const isReschedule = params.get('reschedule') === 'true';
+
         if (!status.paid) {
           // No ha pagado, forzar redirección
           router.push('/checkout');
-        } else if (status.booked) {
-          // Ya tiene cita agendada, mandarlo directamente al dashboard
+        } else if (status.booked && !isReschedule) {
+          // Ya tiene cita agendada y no viene de reagendar, mandarlo al dashboard
           router.push('/dashboard/patient');
         }
       } else {
@@ -110,7 +142,7 @@ export default function BookAppointmentPage() {
 
   const handleConfirmReservation = async () => {
     if (selectedDayIdx === null || !selectedTimeSlot || !token) {
-      alert('Por favor selecciona una fecha y horario para continuar.');
+      showNotification('Selección Requerida', 'Por favor selecciona una fecha y horario para continuar.', 'warning');
       return;
     }
 
@@ -142,6 +174,7 @@ export default function BookAppointmentPage() {
         },
         body: JSON.stringify({
           fechaHora: fechaHora.toISOString(),
+          modalidad,
           notas
         })
       });
@@ -151,8 +184,7 @@ export default function BookAppointmentPage() {
         throw new Error(errData.message || 'Error al agendar la cita.');
       }
 
-      alert('¡Cita agendada con éxito! Acceso al expediente clínico liberado.');
-      router.push('/dashboard/patient');
+      setShowSuccessModal(true);
     } catch (err: any) {
       setError(err.message || 'Error al conectar con la pasarela de citas.');
     } finally {
@@ -265,6 +297,45 @@ export default function BookAppointmentPage() {
               </div>
             </div>
 
+            {/* Step 3: Selecciona la Modalidad */}
+            <div className="bg-slate-900/30 backdrop-blur-md border border-slate-800 p-6 rounded-2xl shadow-xl">
+              <h2 className="text-sm font-bold text-white mb-4 uppercase tracking-wider text-indigo-400">3. Selecciona la Modalidad</h2>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <button
+                  type="button"
+                  onClick={() => setModalidad('VIRTUAL')}
+                  className={`p-4 rounded-xl border flex items-center gap-4 transition-all duration-200 cursor-pointer active:scale-95 text-left ${
+                    modalidad === 'VIRTUAL'
+                      ? 'bg-teal-500/10 border-teal-500/50 text-white shadow-md shadow-teal-500/5'
+                      : 'bg-slate-950/40 border-slate-800 text-slate-400 hover:border-slate-700/60 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="text-3xl">💻</span>
+                  <div>
+                    <span className="block text-sm font-bold text-white">Videollamada Virtual</span>
+                    <span className="block text-[10px] text-slate-500 mt-0.5">A través del portal digital de Nutri Portal</span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setModalidad('PRESENCIAL')}
+                  className={`p-4 rounded-xl border flex items-center gap-4 transition-all duration-200 cursor-pointer active:scale-95 text-left ${
+                    modalidad === 'PRESENCIAL'
+                      ? 'bg-teal-500/10 border-teal-500/50 text-white shadow-md shadow-teal-500/5'
+                      : 'bg-slate-950/40 border-slate-800 text-slate-400 hover:border-slate-700/60 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="text-3xl">🏥</span>
+                  <div>
+                    <span className="block text-sm font-bold text-white">Presencial (Consultorio)</span>
+                    <span className="block text-[10px] text-slate-500 mt-0.5">Av. Vasconcelos 402, Consultorio 3B</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+
           </div>
 
           {/* Col 3: Resume and submit */}
@@ -295,7 +366,9 @@ export default function BookAppointmentPage() {
 
                   <div className="text-xs text-slate-400">
                     <span className="block font-semibold">Modalidad:</span>
-                    <span className="text-teal-400 text-sm mt-0.5 block font-bold">Videollamada Virtual</span>
+                    <span className="text-teal-400 text-sm mt-0.5 block font-bold">
+                      {modalidad === 'VIRTUAL' ? '💻 Videollamada Virtual' : '🏥 Presencial (Consultorio)'}
+                    </span>
                   </div>
                 </div>
 
@@ -330,6 +403,83 @@ export default function BookAppointmentPage() {
       <footer className="py-6 text-center text-slate-600 text-[10px] border-t border-slate-900">
         Nutri Portal Citas. Puedes reagendar tu cita hasta 24 horas antes sin costo adicional.
       </footer>
+
+      {/* Success Modal */}
+      {showSuccessModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md" />
+          
+          {/* Modal Container */}
+          <div className="relative bg-slate-900/90 border border-slate-800 rounded-3xl p-8 max-w-md w-full text-center shadow-2xl transform scale-100 transition-all duration-300 animate-in fade-in zoom-in-95 space-y-6">
+            
+            {/* Success Icon with Glow */}
+            <div className="relative flex items-center justify-center w-20 h-20 mx-auto rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+              <span className="text-4xl animate-bounce">✓</span>
+              <div className="absolute inset-0 rounded-full bg-emerald-500/5 blur-md" />
+            </div>
+
+            {/* Header */}
+            <div className="space-y-2">
+              <h2 className="text-2xl font-black text-white tracking-tight">¡Cita Agendada con Éxito!</h2>
+              <p className="text-slate-400 text-xs leading-relaxed">
+                Tu primera consulta nutricional de valoración {modalidad === 'VIRTUAL' ? 'virtual' : 'presencial'} ha quedado confirmada. El acceso completo a tu expediente clínico digital ha sido liberado.
+              </p>
+            </div>
+
+            {/* Reservation Summary */}
+            <div className="p-4 bg-slate-950/50 rounded-2xl border border-slate-800/80 text-left space-y-3.5">
+              <div className="flex items-center gap-3">
+                <span className="p-2 bg-indigo-500/10 rounded-lg text-indigo-400 text-sm">📅</span>
+                <div>
+                  <span className="block text-[10px] font-bold text-slate-500 uppercase">Fecha</span>
+                  <span className="text-sm font-bold text-slate-200">
+                    {selectedDayIdx !== null ? availableDays[selectedDayIdx].label : ''}
+                  </span>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-3">
+                <span className="p-2 bg-teal-500/10 rounded-lg text-teal-400 text-sm">⏰</span>
+                <div>
+                  <span className="block text-[10px] font-bold text-slate-500 uppercase">Horario</span>
+                  <span className="text-sm font-bold text-slate-200 font-mono">
+                    {selectedTimeSlot}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span className="p-2 bg-emerald-500/10 rounded-lg text-emerald-400 text-sm">
+                  {modalidad === 'VIRTUAL' ? '💻' : '🏥'}
+                </span>
+                <div>
+                  <span className="block text-[10px] font-bold text-slate-500 uppercase">Modalidad</span>
+                  <span className="text-sm font-bold text-slate-200">
+                    {modalidad === 'VIRTUAL' ? 'Videollamada Virtual' : 'Presencial (Consultorio)'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Button */}
+            <button
+              onClick={() => router.push('/dashboard/patient')}
+              className="w-full py-4 text-sm font-bold text-slate-950 bg-gradient-to-r from-teal-400 to-emerald-400 hover:from-teal-300 hover:to-emerald-300 rounded-xl transition duration-300 shadow-lg shadow-teal-500/20 active:scale-95 cursor-pointer font-sans"
+            >
+              Ir al Dashboard de Paciente
+            </button>
+
+          </div>
+        </div>
+      )}
+      <NotificationModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={modalTitle}
+        message={modalMessage}
+        type={modalType}
+      />
     </div>
   );
 }

@@ -5,7 +5,9 @@ import {
   Get, 
   HttpCode, 
   HttpStatus, 
-  UseGuards 
+  UseGuards,
+  Param,
+  ForbiddenException 
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
@@ -55,5 +57,50 @@ export class AuthController {
   @Roles(Role.ADMIN_NUTRIOLOGO)
   async getPacientes(@GetUser('nutriologoProfileId') nutriologoProfileId: string) {
     return this.authService.getPacientesForNutri(nutriologoProfileId);
+  }
+
+  /**
+   * Obtiene todos los nutriólogos con estadísticas (para el panel de administración).
+   */
+  @Get('admin/nutriologos')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN_NUTRIOLOGO)
+  async getNutriologosForAdmin(@GetUser('email') email: string) {
+    if (email !== 'admin@nutrition.com') {
+      throw new ForbiddenException('Acceso denegado. Se requieren privilegios de administrador del sistema.');
+    }
+    return this.authService.getAllNutriologosForAdmin();
+  }
+
+  /**
+   * Registra un nuevo nutriólogo directamente (Admin-only).
+   */
+  @Post('admin/nutriologos')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN_NUTRIOLOGO)
+  async registerNutriologoByAdmin(
+    @GetUser('email') email: string,
+    @Body() registerDto: RegisterDto
+  ) {
+    if (email !== 'admin@nutrition.com') {
+      throw new ForbiddenException('Acceso denegado. Se requieren privilegios de administrador del sistema.');
+    }
+    return this.authService.registerNutriologoByAdmin(registerDto);
+  }
+
+  /**
+   * Elimina un nutriólogo por su id de perfil (Admin-only).
+   */
+  @Post('admin/nutriologos/delete/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN_NUTRIOLOGO)
+  async deleteNutriologo(
+    @GetUser('email') email: string,
+    @Param('id') id: string
+  ) {
+    if (email !== 'admin@nutrition.com') {
+      throw new ForbiddenException('Acceso denegado. Se requieren privilegios de administrador del sistema.');
+    }
+    return this.authService.deleteNutriologoByAdmin(id);
   }
 }
