@@ -11,11 +11,13 @@ interface Nutriologo {
 
 export default function RegisterPage() {
   const router = useRouter();
+  const activeNutriologoIdEnv = process.env.NEXT_PUBLIC_ACTIVE_NUTRIOLOGO_ID;
+  
   const [nombre, setNombre] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<'ADMIN_NUTRIOLOGO' | 'USER_PACIENTE'>('USER_PACIENTE');
-  const [nutriologoId, setNutriologoId] = useState('');
+  const [nutriologoId, setNutriologoId] = useState(activeNutriologoIdEnv || '');
   const [nutriologos, setNutriologos] = useState<Nutriologo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -23,6 +25,10 @@ export default function RegisterPage() {
 
   // Cargar lista de nutriólogos si el rol seleccionado es paciente
   useEffect(() => {
+    if (activeNutriologoIdEnv) {
+      return;
+    }
+
     const fetchNutriologos = async () => {
       try {
         const response = await fetch('http://localhost:3000/api/auth/nutriologos');
@@ -39,7 +45,7 @@ export default function RegisterPage() {
     };
 
     fetchNutriologos();
-  }, []);
+  }, [activeNutriologoIdEnv]);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -144,7 +150,7 @@ export default function RegisterPage() {
           </div>
 
           {/* El registro público está restringido a pacientes; el rol por defecto es USER_PACIENTE */}
-          {nutriologos.length > 0 && (
+          {!activeNutriologoIdEnv && nutriologos.length > 0 && (
             <div>
               <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Selecciona tu Nutriólogo</label>
               <select

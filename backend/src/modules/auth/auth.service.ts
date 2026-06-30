@@ -3,7 +3,8 @@ import {
   ConflictException, 
   UnauthorizedException, 
   BadRequestException,
-  ForbiddenException 
+  ForbiddenException,
+  NotFoundException
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -118,6 +119,7 @@ export class AuthService {
     // 3. Obtener el ID de perfil correspondiente para incluirlo en el token (Tenant)
     let profileId: string | null = null;
     let nombreCompleto = '';
+    let plan = 'ENTERPRISE';
 
     if (user.role === Role.ADMIN_NUTRIOLOGO) {
       const profile = await this.prisma.nutriologoProfile.findUnique({
@@ -125,6 +127,7 @@ export class AuthService {
       });
       profileId = profile ? profile.id : null;
       nombreCompleto = profile ? profile.nombre : 'Nutriólogo';
+      plan = profile ? profile.plan : 'ENTERPRISE';
     } else if (user.role === Role.USER_PACIENTE) {
       const profile = await this.prisma.pacienteProfile.findUnique({
         where: { userId: user.id }
@@ -138,7 +141,8 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       role: user.role,
-      profileId: profileId // Este es el identificador del tenant en las consultas
+      profileId: profileId, // Este es el identificador del tenant en las consultas
+      plan
     };
 
     return {
@@ -148,7 +152,8 @@ export class AuthService {
         email: user.email,
         role: user.role,
         profileId,
-        nombre: nombreCompleto
+        nombre: nombreCompleto,
+        plan
       }
     };
   }
@@ -259,6 +264,7 @@ export class AuthService {
       email: n.user.email,
       cedulaProf: n.cedulaProf,
       especialidades: n.especialidades,
+      plan: n.plan,
       createdAt: n.user.createdAt,
       pacientesCount: n._count.pacientes
     }));
@@ -284,6 +290,35 @@ export class AuthService {
     return {
       success: true,
       message: 'Nutriólogo eliminado con éxito.'
+    };
+  }
+
+  /**
+   * Actualiza el plan de un nutriólogo.
+   */
+  async updateNutriologoPlan(profileId: string, plan: string) {
+    const profile = await this.prisma.nutriologoProfile.findUnique({
+      where: { id: profileId }
+    });
+
+    if (!profile) {
+      throw new NotFoundException('Especialista no encontrado.');
+    }
+
+    const planUpper = plan.toUpperCase();
+    if (!['STARTER', 'PRO', 'ENTERPRISE'].includes(planUpper)) {
+      throw new BadRequestException('Plan inválido. Debe ser STARTER, PRO o ENTERPRISE.');
+    }
+
+    await this.prisma.nutriologoProfile.update({
+      where: { id: profileId },
+      data: { plan: planUpper }
+    });
+
+    return {
+      success: true,
+      message: 'Plan de nutriólogo actualizado con éxito.',
+      plan: planUpper
     };
   }
 }

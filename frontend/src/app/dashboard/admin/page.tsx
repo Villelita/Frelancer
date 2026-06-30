@@ -10,6 +10,7 @@ interface NutriologoStat {
   email: string;
   cedulaProf: string;
   especialidades: string[];
+  plan: 'STARTER' | 'PRO' | 'ENTERPRISE';
   createdAt: string;
   pacientesCount: number;
 }
@@ -171,6 +172,32 @@ export default function AdminDashboard() {
     );
   };
 
+  // Actualizar el plan de un especialista
+  const handleUpdatePlan = async (id: string, newPlan: string) => {
+    if (!token) return;
+    try {
+      setError(null);
+      const response = await fetch(`http://localhost:3000/api/auth/admin/nutriologos/${id}/plan`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ plan: newPlan })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.message || 'Error al actualizar el plan.');
+      }
+
+      showNotification('Plan Actualizado', `El plan del especialista ha sido cambiado a ${newPlan} con éxito.`, 'success');
+      fetchNutriologos(token);
+    } catch (err: any) {
+      showNotification('Error al Actualizar Plan', err.message || 'Error de red.', 'error');
+    }
+  };
+
   const handleLogout = () => {
     localStorage.clear();
     router.push('/login');
@@ -316,6 +343,21 @@ export default function AdminDashboard() {
                         <p className="text-[10px] text-slate-500 pt-1">
                           Registrado: {new Date(nutri.createdAt).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
                         </p>
+
+                        {nutri.email !== 'admin@nutrition.com' && (
+                          <div className="pt-2.5 flex items-center gap-2">
+                            <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Plan Contratado:</span>
+                            <select
+                              value={nutri.plan || 'ENTERPRISE'}
+                              onChange={(e) => handleUpdatePlan(nutri.id, e.target.value)}
+                              className="bg-slate-950 border border-slate-800 text-teal-400 text-[10px] font-bold rounded-lg px-2.5 py-1 focus:outline-none focus:border-teal-500/50 cursor-pointer transition-colors duration-200"
+                            >
+                              <option value="STARTER" className="text-amber-500">🥉 Starter</option>
+                              <option value="PRO" className="text-slate-300">🥈 Pro</option>
+                              <option value="ENTERPRISE" className="text-teal-400 font-bold">🥇 Enterprise</option>
+                            </select>
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-4">

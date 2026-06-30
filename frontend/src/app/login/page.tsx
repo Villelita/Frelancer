@@ -52,6 +52,9 @@ export default function LoginPage() {
       localStorage.setItem('profileId', data.user.profileId);
       localStorage.setItem('userName', data.user.nombre);
       localStorage.setItem('userEmail', data.user.email);
+      if (data.user.plan) {
+        localStorage.setItem('plan', data.user.plan);
+      }
 
       if (data.user.email === 'admin@nutrition.com') {
         router.push('/dashboard/admin');

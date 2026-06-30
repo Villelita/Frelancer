@@ -103,4 +103,21 @@ export class AuthController {
     }
     return this.authService.deleteNutriologoByAdmin(id);
   }
+
+  /**
+   * Actualiza el plan de un nutriólogo (Admin-only).
+   */
+  @Post('admin/nutriologos/:id/plan')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN_NUTRIOLOGO)
+  async updateNutriologoPlan(
+    @GetUser('email') email: string,
+    @Param('id') id: string,
+    @Body('plan') plan: string
+  ) {
+    if (email !== 'admin@nutrition.com') {
+      throw new ForbiddenException('Acceso denegado. Se requieren privilegios de administrador del sistema.');
+    }
+    return this.authService.updateNutriologoPlan(id, plan);
+  }
 }

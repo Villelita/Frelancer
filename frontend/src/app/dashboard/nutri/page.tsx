@@ -33,8 +33,13 @@ export default function NutriDashboard() {
     setModalOpen(true);
   };
   
+  const activePlanEnv = process.env.NEXT_PUBLIC_ACTIVE_PLAN as 'STARTER' | 'PRO' | 'ENTERPRISE' | undefined;
+  const initialPlan = (activePlanEnv && ['STARTER', 'PRO', 'ENTERPRISE'].includes(activePlanEnv))
+    ? activePlanEnv
+    : 'ENTERPRISE';
+
   // Estado de simulación de planes (Starter, Pro, Enterprise)
-  const [mockupPlan, setMockupPlan] = useState<'STARTER' | 'PRO' | 'ENTERPRISE'>('ENTERPRISE');
+  const [mockupPlan, setMockupPlan] = useState<'STARTER' | 'PRO' | 'ENTERPRISE'>(initialPlan);
 
   // Estados de carga y error
   const [loading, setLoading] = useState(true);
@@ -91,15 +96,23 @@ export default function NutriDashboard() {
     const savedToken = localStorage.getItem('token');
     const savedRole = localStorage.getItem('role');
     const savedName = localStorage.getItem('userName');
+    const savedPlan = localStorage.getItem('plan') as 'STARTER' | 'PRO' | 'ENTERPRISE' | null;
 
     if (!savedToken || savedRole !== 'ADMIN_NUTRIOLOGO') {
       router.push('/login');
     } else {
       setToken(savedToken);
       setNutriName(savedName || 'Nutriólogo');
+      
+      if (activePlanEnv) {
+        setMockupPlan(activePlanEnv);
+      } else if (savedPlan && ['STARTER', 'PRO', 'ENTERPRISE'].includes(savedPlan)) {
+        setMockupPlan(savedPlan);
+      }
+      
       fetchPacientes(savedToken);
     }
-  }, [router]);
+  }, [router, activePlanEnv]);
 
   // 2. Cargar pacientes
   const fetchPacientes = async (savedToken: string) => {
@@ -295,46 +308,48 @@ export default function NutriDashboard() {
         </header>
 
         {/* Mockup Plan Switcher Bar */}
-        <div className="mb-8 p-5 bg-slate-900/40 backdrop-blur-md border border-slate-800 rounded-3xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl">
-          <div>
-            <h3 className="text-xs font-black text-indigo-400 uppercase tracking-widest flex items-center gap-1.5">
-              <span>⚡</span> Simulador Multitenant (Demostración de Planes de la Propuesta)
-            </h3>
-            <p className="text-[10px] text-slate-400 mt-0.5">Permite alternar entre los 3 planes comerciales (Starter, Pro, Enterprise) para previsualizar los privilegios y herramientas disponibles.</p>
+        {!activePlanEnv && (
+          <div className="mb-8 p-5 bg-slate-900/40 backdrop-blur-md border border-slate-800 rounded-3xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl">
+            <div>
+              <h3 className="text-xs font-black text-indigo-400 uppercase tracking-widest flex items-center gap-1.5">
+                <span>⚡</span> Simulador Multitenant (Demostración de Planes de la Propuesta)
+              </h3>
+              <p className="text-[10px] text-slate-400 mt-0.5">Permite alternar entre los 3 planes comerciales (Starter, Pro, Enterprise) para previsualizar los privilegios y herramientas disponibles.</p>
+            </div>
+            <div className="flex gap-2 bg-slate-950/60 p-1.5 rounded-xl border border-slate-800/80">
+              <button
+                onClick={() => setMockupPlan('STARTER')}
+                className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-all duration-200 cursor-pointer ${
+                  mockupPlan === 'STARTER'
+                    ? 'bg-amber-500/20 border border-amber-500/30 text-amber-300 shadow-md'
+                    : 'text-slate-500 hover:text-slate-300 border border-transparent'
+                }`}
+              >
+                🥉 Starter
+              </button>
+              <button
+                onClick={() => setMockupPlan('PRO')}
+                className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-all duration-200 cursor-pointer ${
+                  mockupPlan === 'PRO'
+                    ? 'bg-slate-400/20 border border-slate-400/30 text-slate-200 shadow-md'
+                    : 'text-slate-500 hover:text-slate-300 border border-transparent'
+                }`}
+              >
+                🥈 Pro
+              </button>
+              <button
+                onClick={() => setMockupPlan('ENTERPRISE')}
+                className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-all duration-200 cursor-pointer ${
+                  mockupPlan === 'ENTERPRISE'
+                    ? 'bg-teal-500/20 border border-teal-500/30 text-teal-300 shadow-md'
+                    : 'text-slate-500 hover:text-slate-300 border border-transparent'
+                }`}
+              >
+                🥇 Enterprise
+              </button>
+            </div>
           </div>
-          <div className="flex gap-2 bg-slate-950/60 p-1.5 rounded-xl border border-slate-800/80">
-            <button
-              onClick={() => setMockupPlan('STARTER')}
-              className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-all duration-200 cursor-pointer ${
-                mockupPlan === 'STARTER'
-                  ? 'bg-amber-500/20 border border-amber-500/30 text-amber-300 shadow-md'
-                  : 'text-slate-500 hover:text-slate-300 border border-transparent'
-              }`}
-            >
-              🥉 Starter
-            </button>
-            <button
-              onClick={() => setMockupPlan('PRO')}
-              className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-all duration-200 cursor-pointer ${
-                mockupPlan === 'PRO'
-                  ? 'bg-slate-400/20 border border-slate-400/30 text-slate-200 shadow-md'
-                  : 'text-slate-500 hover:text-slate-300 border border-transparent'
-              }`}
-            >
-              🥈 Pro
-            </button>
-            <button
-              onClick={() => setMockupPlan('ENTERPRISE')}
-              className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-all duration-200 cursor-pointer ${
-                mockupPlan === 'ENTERPRISE'
-                  ? 'bg-teal-500/20 border border-teal-500/30 text-teal-300 shadow-md'
-                  : 'text-slate-500 hover:text-slate-300 border border-transparent'
-              }`}
-            >
-              🥇 Enterprise
-            </button>
-          </div>
-        </div>
+        )}
 
         {/* Dashboard Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -395,14 +410,16 @@ export default function NutriDashboard() {
                     El Plan Starter de <strong>$18,000 MXN</strong> incluye Landing Page y Agenda automatizada. Para desbloquear el Expediente Clínico Digital, Mediciones de composición corporal y Calculadoras nutricionales, solicita el <strong>Plan Pro</strong>.
                   </p>
                 </div>
-                <div className="pt-2">
-                  <button
-                    onClick={() => setMockupPlan('PRO')}
-                    className="px-6 py-3 text-xs font-bold text-slate-950 bg-gradient-to-r from-teal-400 to-emerald-400 hover:from-teal-300 hover:to-emerald-300 rounded-xl transition cursor-pointer active:scale-95 shadow-lg shadow-teal-500/10"
-                  >
-                    🚀 Simular Actualización a Plan Pro
-                  </button>
-                </div>
+                {!activePlanEnv && (
+                  <div className="pt-2">
+                    <button
+                      onClick={() => setMockupPlan('PRO')}
+                      className="px-6 py-3 text-xs font-bold text-slate-950 bg-gradient-to-r from-teal-400 to-emerald-400 hover:from-teal-300 hover:to-emerald-300 rounded-xl transition cursor-pointer active:scale-95 shadow-lg shadow-teal-500/10"
+                    >
+                      🚀 Simular Actualización a Plan Pro
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -653,12 +670,14 @@ export default function NutriDashboard() {
                     <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
                       El Creador de Planes Alimenticios dinámicos y envío directo a portales privados de pacientes está disponible en el <strong>Plan Enterprise</strong>.
                     </p>
-                    <button
-                      onClick={() => setMockupPlan('ENTERPRISE')}
-                      className="px-4 py-2.5 text-xs font-bold text-slate-950 bg-gradient-to-r from-teal-400 to-emerald-400 hover:from-teal-300 hover:to-emerald-300 rounded-xl transition cursor-pointer active:scale-95 shadow"
-                    >
-                      🚀 Simular Actualización a Plan Enterprise
-                    </button>
+                    {!activePlanEnv && (
+                      <button
+                        onClick={() => setMockupPlan('ENTERPRISE')}
+                        className="px-4 py-2.5 text-xs font-bold text-slate-950 bg-gradient-to-r from-teal-400 to-emerald-400 hover:from-teal-300 hover:to-emerald-300 rounded-xl transition cursor-pointer active:scale-95 shadow"
+                      >
+                        🚀 Simular Actualización a Plan Enterprise
+                      </button>
+                    )}
                   </div>
                 )}
 
