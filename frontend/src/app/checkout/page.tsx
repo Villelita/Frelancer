@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { API_BASE_URL } from '@/config';
 
 export default function CheckoutPage() {
   const router = useRouter();
@@ -59,7 +60,7 @@ export default function CheckoutPage() {
 
   const checkIfAlreadyPaid = async (userToken: string) => {
     try {
-      const res = await fetch('http://localhost:3000/api/citas/status', {
+      const res = await fetch(`${API_BASE_URL}/api/citas/status`, {
         headers: {
           'Authorization': `Bearer ${userToken}`
         }
@@ -128,7 +129,7 @@ export default function CheckoutPage() {
       fechaHora.setHours(hour, minute, 0, 0);
 
       // 1. Solicitar sesión de Stripe Checkout al backend enviando la reserva seleccionada
-      const response = await fetch('http://localhost:3000/api/citas/stripe-checkout', {
+      const response = await fetch(`${API_BASE_URL}/api/citas/stripe-checkout`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { API_BASE_URL } from '@/config';
 import NotificationModal from '../../../components/NotificationModal';
 
 // Tipado para el progreso histórico
@@ -103,7 +104,7 @@ export default function PatientDashboard() {
       const params = new URLSearchParams(window.location.search);
       const sessionId = params.get('session_id');
       
-      let url = 'http://localhost:3000/api/citas/status';
+      let url = `${API_BASE_URL}/api/citas/status`;
       if (sessionId) {
         url += `?session_id=${encodeURIComponent(sessionId)}`;
       }
@@ -140,7 +141,7 @@ export default function PatientDashboard() {
   const fetchHistorial = async (profileId: string, userToken: string) => {
     try {
       setLoading(true);
-      const response = await fetch(`http://localhost:3000/api/consultas/paciente/${profileId}`, {
+      const response = await fetch(`${API_BASE_URL}/api/consultas/paciente/${profileId}`, {
         headers: {
           'Authorization': `Bearer ${userToken}`
         }
@@ -188,7 +189,7 @@ export default function PatientDashboard() {
   const fetchPlanActivo = async (profileId: string, userToken: string) => {
     try {
       setLoadingPlan(true);
-      const response = await fetch(`http://localhost:3000/api/planes/paciente/${profileId}`, {
+      const response = await fetch(`${API_BASE_URL}/api/planes/paciente/${profileId}`, {
         headers: {
           'Authorization': `Bearer ${userToken}`
         }
@@ -243,7 +244,7 @@ export default function PatientDashboard() {
     
     try {
       setCanceling(true);
-      const res = await fetch('http://localhost:3000/api/citas/cancel', {
+      const res = await fetch(`${API_BASE_URL}/api/citas/cancel`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -285,7 +286,7 @@ export default function PatientDashboard() {
       setSubmitting(true);
 
       // A. Autenticarse temporalmente como el doctor sembrado en la base de datos
-      const authDoctorRes = await fetch('http://localhost:3000/api/auth/login', {
+      const authDoctorRes = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -302,7 +303,7 @@ export default function PatientDashboard() {
       const doctorToken = doctorData.accessToken;
 
       // B. Enviar la consulta con el Token del doctor
-      const response = await fetch('http://localhost:3000/api/consultas', {
+      const response = await fetch(`${API_BASE_URL}/api/consultas`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

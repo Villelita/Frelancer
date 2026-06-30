@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { API_BASE_URL } from '@/config';
 import NotificationModal from '../../../components/NotificationModal';
 
 interface NutriologoStat {
@@ -73,7 +74,7 @@ export default function AdminDashboard() {
   const fetchNutriologos = async (savedToken: string) => {
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:3000/api/auth/admin/nutriologos', {
+      const response = await fetch(`${API_BASE_URL}/api/auth/admin/nutriologos`, {
         headers: {
           'Authorization': `Bearer ${savedToken}`
         }
@@ -106,7 +107,7 @@ export default function AdminDashboard() {
         .map(s => s.trim())
         .filter(s => s.length > 0);
 
-      const response = await fetch('http://localhost:3000/api/auth/admin/nutriologos', {
+      const response = await fetch(`${API_BASE_URL}/api/auth/admin/nutriologos`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -151,7 +152,7 @@ export default function AdminDashboard() {
       `¿Estás seguro de eliminar permanentemente al especialista "${nombre}"? Esta acción borrará todas sus citas y pacientes asociados en Supabase.`,
       async () => {
         try {
-          const response = await fetch(`http://localhost:3000/api/auth/admin/nutriologos/delete/${id}`, {
+          const response = await fetch(`${API_BASE_URL}/api/auth/admin/nutriologos/delete/${id}`, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${token}`
@@ -177,7 +178,7 @@ export default function AdminDashboard() {
     if (!token) return;
     try {
       setError(null);
-      const response = await fetch(`http://localhost:3000/api/auth/admin/nutriologos/${id}/plan`, {
+      const response = await fetch(`${API_BASE_URL}/api/auth/admin/nutriologos/${id}/plan`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

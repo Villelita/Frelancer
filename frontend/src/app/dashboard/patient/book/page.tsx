@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { API_BASE_URL } from '@/config';
 import NotificationModal from '../../../../components/NotificationModal';
 
 export default function BookAppointmentPage() {
@@ -76,7 +77,7 @@ export default function BookAppointmentPage() {
     try {
       setLoading(true);
       
-      let url = 'http://localhost:3000/api/citas/status';
+      let url = `${API_BASE_URL}/api/citas/status`;
       if (sessionId) {
         url += `?session_id=${encodeURIComponent(sessionId)}`;
       }
@@ -166,7 +167,7 @@ export default function BookAppointmentPage() {
       const fechaHora = new Date(day.date);
       fechaHora.setHours(hour, minute, 0, 0);
 
-      const response = await fetch('http://localhost:3000/api/citas/book', {
+      const response = await fetch(`${API_BASE_URL}/api/citas/book`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

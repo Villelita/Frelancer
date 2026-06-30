@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { API_BASE_URL } from '@/config';
 import NotificationModal from '../../../components/NotificationModal';
 
 interface Paciente {
@@ -118,7 +119,7 @@ export default function NutriDashboard() {
   const fetchPacientes = async (savedToken: string) => {
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:3000/api/auth/pacientes', {
+      const response = await fetch(`${API_BASE_URL}/api/auth/pacientes`, {
         headers: {
           'Authorization': `Bearer ${savedToken}`
         }
@@ -189,7 +190,7 @@ export default function NutriDashboard() {
 
     try {
       setSubmittingConsulta(true);
-      const response = await fetch('http://localhost:3000/api/consultas', {
+      const response = await fetch(`${API_BASE_URL}/api/consultas`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -233,7 +234,7 @@ export default function NutriDashboard() {
 
     try {
       setSubmittingPlan(true);
-      const response = await fetch('http://localhost:3000/api/planes', {
+      const response = await fetch(`${API_BASE_URL}/api/planes`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
